@@ -1,0 +1,4912 @@
+---
+title: "Filtering GEBCO-linked OBIS data to distinguish benthic vs. pelagic taxa"
+format: 
+    html:
+      css: cayman.css
+
+editor: source
+---
+
+# Setting up the working environment
+
+## Required packages
+
+```{r}
+#| output: false
+#| warning: false
+#| echo: false
+#| message: false
+
+library(raster)
+library(robis)
+library(tidyverse)
+library(rnaturalearth)
+library(cowplot)
+# library(rgeos)
+library(sf)
+library(plyr)
+library(Utilities.Package)
+library(classInt)
+library(fpc)
+library(BBmisc)
+
+```
+
+## Folder structures
+
+Various folders where the data is stored (if working on work Windows laptop):
+
+```{r}
+wd<-"/Volumes/One Touch/Main_folder/In_prep_submittted_manuscripts/Bridges_etal_OBIS_assessment/OBIS_data_clean/Code/"
+
+gebco_vals_folder<-paste0(wd, "step3_gebco_val_records/")
+
+depth_horizons_folder<-paste0(wd, "step4_extracting_depth_horizons/")
+
+percentiles_folder<-paste0(wd, "step5_removing_95th_percentile/")
+
+clustering_results_folder<-paste0(wd, "step6_clustering_subsets/")
+
+top1_clusters_folder<-paste0(wd, "step7_top1_asw_cluster_combinations/")
+
+selected_clusters_folder<-paste0(wd, "step8_selected_clusters/")
+```
+
+## Initial extraction of depth horizons
+
+Code for the initial extraction from the step3 files but I saved the intermediates so you can just read them in 'quickly' in the future (see below).
+
+```{r}
+# section1<-read.csv(paste0(gebco_vals_folder, "GEBCO_vals_TaxonID2_section1_270623.csv"), sep=",", head=T)
+# section2a<-read.csv(paste0(gebco_vals_folder, "GEBCO_vals_TaxonID2_section2a_270623.csv"), sep=",", head=T)
+# section2b<-read.csv(paste0(gebco_vals_folder, "GEBCO_vals_TaxonID2_section2b_280623.csv"), sep=",", head=T)
+# section3<-read.csv(paste0(gebco_vals_folder, "GEBCO_vals_TaxonID2_section3_280623.csv"), sep=",", head=T)
+# section4<-read.csv(paste0(gebco_vals_folder, "GEBCO_vals_TaxonID2_section4_300623.csv"), sep=",", head=T)
+# section5<-read.csv(paste0(gebco_vals_folder, "GEBCO_vals_TaxonID2_section5_300623.csv"), sep=",", head=T)
+# section6<-read.csv(paste0(gebco_vals_folder, "GEBCO_vals_TaxonID2_section6_300623.csv"), sep=",", head=T)
+# section7<-read.csv(paste0(gebco_vals_folder, "GEBCO_vals_TaxonID2_section7_300623.csv"), sep=",", head=T)
+# section8<-read.csv(paste0(gebco_vals_folder, "GEBCO_vals_TaxonID2_section8_300623.csv"), sep=",", head=T)
+
+```
+
+The depth values are stored in negative format which is confusing to work with so we inverted them.
+
+```{r}
+# section1<-section1%>%
+#   mutate(newDepth=abs(section1$depth))%>%
+#   mutate(newGebcoDepth=abs(section1$gebco_depth_value))
+# 
+# section2a<-section2a%>%
+#   mutate(newDepth=abs(section2a$depth))%>%
+#   mutate(newGebcoDepth=abs(section2a$gebco_depth_value))
+# 
+# section2b<-section2b%>%
+#   mutate(newDepth=abs(section2b$depth))%>%
+#   mutate(newGebcoDepth=abs(section2b$gebco_depth_value))
+# 
+# section3<-section3%>%
+#   mutate(newDepth=abs(section3$depth))%>%
+#   mutate(newGebcoDepth=abs(section3$gebco_depth_value))
+# 
+# section4<-section4%>%
+#   mutate(newDepth=abs(section4$depth))%>%
+#   mutate(newGebcoDepth=abs(section4$gebco_depth_value))
+# 
+# section5<-section5%>%
+#   mutate(newDepth=abs(section5$depth))%>%
+#   mutate(newGebcoDepth=abs(section5$gebco_depth_value))
+# 
+# section6<-section6%>%
+#   mutate(newDepth=abs(section6$depth))%>%
+#   mutate(newGebcoDepth=abs(section6$gebco_depth_value))
+# 
+# section7<-section7%>%
+#   mutate(newDepth=abs(section7$depth))%>%
+#   mutate(newGebcoDepth=abs(section7$gebco_depth_value))
+# 
+# section8<-section8%>%
+#   mutate(newDepth=abs(section8$depth))%>%
+#   mutate(newGebcoDepth=abs(section8$gebco_depth_value))
+
+```
+
+I'm subsetting the depth horizons at exact values between 30 and 800, and then +/- 10 from 1000 m onwards as the deeper you go, the less data there is to play with so specifying an exact value doesn't work.
+
+```{r}
+# s5_subset_30m<-section5%>%
+#   filter(newGebcoDepth==30)
+# 
+# s5_subset_40m<-section5%>%
+#   filter(newGebcoDepth==40)
+# 
+# s5_subset_50m<-section5%>%
+#   filter(newGebcoDepth==50)
+# 
+# s5_subset_100m<-section5%>%
+#   filter(newGebcoDepth==100)
+# 
+# s5_subset_150m<-section5%>%
+#   filter(newGebcoDepth==150)
+# 
+# s5_subset_200m<-section5%>%
+#   filter(newGebcoDepth==200)
+# 
+# s5_subset_400m<-section5%>%
+#   filter(newGebcoDepth==400)
+# 
+# s5_subset_600m<-section5%>%
+#   filter(newGebcoDepth==600)
+# 
+# s5_subset_800m<-section5%>%
+#   filter(newGebcoDepth==800)
+# 
+# s5_subset_1000m<-section5%>%
+#   filter(newGebcoDepth>990 & newGebcoDepth<=1010)
+# 
+# s5_subset_3000m<-section5%>%
+#   filter(newGebcoDepth>2990 & newGebcoDepth<=3010)
+# 
+# s5_subset_5000m<-section5%>%
+#   filter(newGebcoDepth>4990 & newGebcoDepth<=5010)
+# 
+# s8_subset_7000m<-section8%>%
+#   filter(newGebcoDepth>5990 & newGebcoDepth<=6010)
+# 
+# s5_subset_10000m<-section5%>%
+#   filter(newGebcoDepth>9990 & newGebcoDepth<=11000)
+
+
+```
+
+Now I need to stitch my 9 sections together to make 1x 30 m subset, 1x 40 m subset etc.
+
+```{r}
+# subset_30m<-rbind.fill(s1_subset_30m, s2b_subset_30m, s6_subset_30m, s7_subset_30m, s8_subset_30m)
+# subset_40m<-rbind.fill(s1_subset_40m, s2b_subset_40m, s6_subset_40m, s7_subset_40m, s8_subset_40m)
+# subset_50m<-rbind.fill(s1_subset_50m, s2b_subset_50m, s6_subset_50m, s7_subset_50m, s8_subset_50m)
+# subset_100m<-rbind.fill(s1_subset_100m, s2b_subset_100m, s6_subset_100m, s7_subset_100m, s8_subset_100m)
+# subset_150m<-rbind.fill(s1_subset_150m, s2b_subset_150m, s6_subset_150m, s7_subset_150m, s8_subset_150m)
+# subset_200m<-rbind.fill(s1_subset_200m, s2b_subset_200m, s6_subset_200m, s7_subset_200m, s8_subset_200m)
+# subset_400m<-rbind.fill(s1_subset_400m, s2b_subset_400m, s6_subset_400m, s7_subset_400m, s8_subset_400m)
+# subset_600m<-rbind.fill(s1_subset_600m, s2b_subset_600m, s6_subset_600m, s7_subset_600m, s8_subset_600m)
+# subset_800m<-rbind.fill(s1_subset_800m, s2b_subset_800m, s6_subset_800m, s7_subset_800m, s8_subset_800m)
+# subset_1000m<-rbind.fill(s1_subset_1000m, s2b_subset_1000m, s6_subset_1000m, s7_subset_1000m, s8_subset_1000m)
+# subset_3000m<-rbind.fill(s1_subset_3000m, s2b_subset_3000m, s6_subset_3000m, s7_subset_3000m, s8_subset_3000m)
+# subset_5000m<-rbind.fill(s1_subset_5000m, s2b_subset_5000m, s6_subset_5000m, s7_subset_5000m, s8_subset_5000m)
+# subset_7000m<-rbind.fill(s1_subset_7000m, s2a_subset_7000m, s2b_subset_7000m, s3_subset_7000m, s4_subset_7000m, s5_subset_7000m, s6_subset_7000m, s7_subset_7000m, s8_subset_7000m)
+# subset_10000m<-rbind.fill(s1_subset_10000m, s2b_subset_10000m, s6_subset_10000m, s7_subset_10000m, s8_subset_10000m)
+```
+
+Now I want to save these files to save me re-running these steps again. 
+
+```{r}
+# write.csv(subset_30m, paste0(depth_horizons_folder, "Horizon_30m_TaxonID2_global.csv"), row.names = F)
+# write.csv(subset_40m, paste0(depth_horizons_folder, "Horizon_40m_TaxonID2_global.csv"), row.names = F)
+# write.csv(subset_50m, paste0(depth_horizons_folder, "Horizon_50m_TaxonID2_global.csv"), row.names = F)
+# write.csv(subset_100m, paste0(depth_horizons_folder, "Horizon_100m_TaxonID2_global.csv"), row.names = F)
+# write.csv(subset_150m, paste0(depth_horizons_folder, "Horizon_150m_TaxonID2_global.csv"), row.names = F)
+# write.csv(subset_200m, paste0(depth_horizons_folder, "Horizon_200m_TaxonID2_global.csv"), row.names = F)
+# write.csv(subset_400m, paste0(depth_horizons_folder, "Horizon_400m_TaxonID2_global.csv"), row.names = F)
+# write.csv(subset_600m, paste0(depth_horizons_folder, "Horizon_600m_TaxonID2_global.csv"), row.names = F)
+# write.csv(subset_800m, paste0(depth_horizons_folder, "Horizon_800m_TaxonID2_global.csv"), row.names = F)
+# write.csv(subset_1000m, paste0(depth_horizons_folder, "Horizon_1000m_TaxonID2_global.csv"), row.names = F)
+# write.csv(subset_3000m, paste0(depth_horizons_folder, "Horizon_3000m_TaxonID2_global.csv"), row.names = F)
+# write.csv(subset_5000m, paste0(depth_horizons_folder, "Horizon_5000m_TaxonID2_global.csv"), row.names = F)
+# write.csv(subset_7000m, paste0(depth_horizons_folder, "Horizon_7000m_TaxonID2_global.csv"), row.names = F)
+# write.csv(subset_10000m, paste0(depth_horizons_folder, "Horizon_10000m_TaxonID2_global.csv"), row.names = F)
+```
+
+As the total OBIS database is around 144GB, we divided the world into 9 tiles (see below). ![World divisions for OBIS download](Section_divisions.jpg)
+
+The level of error in depth records varies, with greater error in deeper depth. Therefore, when we're using proximity to the seabed as an indicator of benthic *versus* pelagic, we need to alter our thresholds based on depth. There are a number of ways in which one could make this decision:
+
+**Clustering/natural breaks**
+
+Most equipment either samples the true benthos or the true pelagic. A density plot of record depth for set GEBCO cells of equivalent depths (i.e. subset by GEBCO = 200 m) should show a peak for each equipment type and a natural break in the middle that could be used to infer where the proximity threshold should sit. We could identify statistically where breaks occur using clustering algorithms.
+
+**Graduated cut-offs**
+
+-   For records between 30 and 200 m, we want to keep records within +/- 5 m from the GEBCO seabed value
+-   For records between 201 and 1000 m, we want to keep records within +/- 20 m from the GEBCO seabed value
+-   For records between below 1000 m, we want to keep records within +/- 50 m from the GEBCO seabed value
+
+**A model using truly benthic taxa**
+
+We could model, probably using a GAM, the relationship between record depth and GEBCO depth for taxonomic groups we know are truly benthic. Then we could use this to infer where the cutoff should be. My concern here is that the reasoning behind the differences in record depth and GEBCO depth aren't ecological so I'm not sure this would work well.
+
+To assess where the natural breaks in the data are, I want to check at different depths, and across different basins. Therefore I will make density plots for the following 14 (GEBCO) depths:
+
+-   30 m
+-   40 m
+-   50 m
+-   100 m
+-   150 m
+-   200 m
+-   400 m
+-   600 m
+-   800 m
+-   1000 m
+-   3000 m
+-   5000 m
+-   7000 m
+-   10000 m
+
+```{r}
+subset_30m<-read.csv(paste0(depth_horizons_folder, "Horizon_30m_TaxonID2_global.csv"), sep=",", head=T)%>%
+  mutate(subset="30 m")
+subset_40m<-read.csv(paste0(depth_horizons_folder, "Horizon_40m_TaxonID2_global.csv"), sep=",", head=T)%>%
+  mutate(subset="40 m")
+subset_50m<-read.csv(paste0(depth_horizons_folder, "Horizon_50m_TaxonID2_global.csv"), sep=",", head=T)%>%
+  mutate(subset="50 m")
+subset_100m<-read.csv(paste0(depth_horizons_folder, "Horizon_100m_TaxonID2_global.csv"), sep=",", head=T)%>%
+  mutate(subset="100 m")
+subset_150m<-read.csv(paste0(depth_horizons_folder, "Horizon_150m_TaxonID2_global.csv"), sep=",", head=T)%>%
+  mutate(subset="150 m")
+subset_200m<-read.csv(paste0(depth_horizons_folder, "Horizon_200m_TaxonID2_global.csv"), sep=",", head=T)%>%
+  mutate(subset="200 m")
+subset_400m<-read.csv(paste0(depth_horizons_folder, "Horizon_400m_TaxonID2_global.csv"), sep=",", head=T)%>%
+  mutate(subset="400 m")
+subset_600m<-read.csv(paste0(depth_horizons_folder, "Horizon_600m_TaxonID2_global.csv"), sep=",", head=T)%>%
+  mutate(subset="600 m")
+subset_800m<-read.csv(paste0(depth_horizons_folder, "Horizon_800m_TaxonID2_global.csv"), sep=",", head=T)%>%
+  mutate(subset="800 m")
+subset_1000m<-read.csv(paste0(depth_horizons_folder, "Horizon_1000m_TaxonID2_global.csv"), sep=",", head=T)%>%
+  mutate(subset="1000 m")
+subset_3000m<-read.csv(paste0(depth_horizons_folder, "Horizon_3000m_TaxonID2_global.csv"), sep=",", head=T)%>%
+  mutate(subset="3000 m")
+subset_5000m<-read.csv(paste0(depth_horizons_folder, "Horizon_5000m_TaxonID2_global.csv"), sep=",", head=T)%>%
+  mutate(subset="5000 m")
+subset_7000m<-read.csv(paste0(depth_horizons_folder, "Horizon_7000m_TaxonID2_global.csv"), sep=",", head=T)%>%
+  mutate(subset="7000 m")
+subset_10000m<-read.csv(paste0(depth_horizons_folder, "Horizon_10000m_TaxonID2_global.csv"), sep=",", head=T)%>%
+  mutate(subset="10000 m")
+```
+
+# Data exploration
+
+## Summary stats
+
+```{r}
+min_stats<-c(min(subset_30m$newDepth),
+             min(subset_40m$newDepth),
+             min(subset_50m$newDepth),
+             min(subset_100m$newDepth),
+             min(subset_150m$newDepth),
+             min(subset_200m$newDepth),
+             min(subset_400m$newDepth),
+             min(subset_600m$newDepth),
+             min(subset_800m$newDepth),
+             min(subset_1000m$newDepth),
+             min(subset_3000m$newDepth),
+             min(subset_5000m$newDepth),
+             min(subset_7000m$newDepth),
+             min(subset_10000m$newDepth))
+
+max_stats<-c(max(subset_30m$newDepth),
+             max(subset_40m$newDepth),
+             max(subset_50m$newDepth),
+             max(subset_100m$newDepth),
+             max(subset_150m$newDepth),
+             max(subset_200m$newDepth),
+             max(subset_400m$newDepth),
+             max(subset_600m$newDepth),
+             max(subset_800m$newDepth),
+             max(subset_1000m$newDepth),
+             max(subset_3000m$newDepth),
+             max(subset_5000m$newDepth),
+             max(subset_7000m$newDepth),
+             max(subset_10000m$newDepth))
+
+percentile95th<-c(quantile(subset_30m$newDepth, probs = c(0.95)),
+             quantile(subset_40m$newDepth, probs = c(0.95)),
+             quantile(subset_50m$newDepth, probs = c(0.95)),
+             quantile(subset_100m$newDepth, probs = c(0.95)),
+             quantile(subset_150m$newDepth, probs = c(0.95)),
+             quantile(subset_200m$newDepth, probs = c(0.95)),
+             quantile(subset_400m$newDepth, probs = c(0.95)),
+             quantile(subset_600m$newDepth, probs = c(0.95)),
+             quantile(subset_800m$newDepth, probs = c(0.95)),
+             quantile(subset_1000m$newDepth, probs = c(0.95)),
+             quantile(subset_3000m$newDepth, probs = c(0.95)),
+             quantile(subset_5000m$newDepth, probs = c(0.95)),
+             quantile(subset_7000m$newDepth, probs = c(0.95)),
+             quantile(subset_10000m$newDepth, probs = c(0.95)))
+
+Depth_horizon<-c("30 m", "40 m", "50 m", "100 m", "150 m", "200 m", "400 m", "600 m", "800 m", "1000 m", "3000 m", "5000 m", "7000 m", "10000 m")
+
+summary_stats<-data.frame(Depth_horizon, min_stats, max_stats, percentile95th)
+
+summary_stats
+```
+
+```{r}
+# subsets_combined<-rbind(subset_30m, subset_40m, subset_50m, subset_100m, subset_150m, subset_200m, subset_400m, subset_600m, subset_800m, subset_1000m, subset_3000m, subset_5000m, subset_7000m, subset_10000m)
+# 
+# ggplot(subsets_combined, aes(x=subset, y=newDepth))+
+#   geom_boxplot(outlier.color = "red")+
+#   scale_y_reverse()+
+#   scale_x_discrete(limits = Depth_horizon)
+```
+
+You can see from the box plot that all the depth bands have fairly long tails. I'm going to save the histograms for the raw data.
+
+## Histograms (already saved)
+
+```{r}
+# ggplot(subset_30m, aes(x=newDepth)) + 
+#   geom_histogram(binwidth=20, aes(y=..density..), colour="black", fill="white")+
+#   ggtitle("30 m subset")+
+#   xlab("OBIS record depth where GEBCO depth is 30 m")+
+#   ylab("Density")+
+#   scale_x_continuous(limits=c(0, max(subset_30m$newDepth)), breaks = seq(0, max(subset_30m$newDepth), 100))+
+#   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+# 
+# ggsave("Histogram_horizon_30m_TaxonID2_global.jpeg", 
+#        plot=last_plot(), 
+#        device = "jpeg", 
+#        path = depth_horizons_folder, 
+#        dpi=600)
+# 
+# ggplot(subset_40m, aes(x=newDepth)) + 
+#   geom_histogram(binwidth=20, aes(y=..density..), colour="black", fill="white")+
+#   ggtitle("40 m subset")+
+#   xlab("OBIS record depth where GEBCO depth is 40 m")+
+#   ylab("Density")+
+#   scale_x_continuous(limits=c(0, max(subset_40m$newDepth)), breaks = seq(0, max(subset_40m$newDepth), 100))+
+#   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+# 
+# ggsave("Histogram_horizon_40m_TaxonID2_global.jpeg", 
+#        plot=last_plot(), 
+#        device = "jpeg", 
+#        path = depth_horizons_folder, 
+#        dpi=600)
+# 
+# ggplot(subset_50m, aes(x=newDepth)) + 
+#   geom_histogram(binwidth=20, aes(y=..density..), colour="black", fill="white")+
+#   ggtitle("50 m subset")+
+#   xlab("OBIS record depth where GEBCO depth is 50 m")+
+#   ylab("Density")+
+#   scale_x_continuous(limits=c(0, max(subset_50m$newDepth)), breaks = seq(0, max(subset_50m$newDepth), 200))+
+#   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+# 
+# ggsave("Histogram_horizon_50m_TaxonID2_global.jpeg", 
+#        plot=last_plot(), 
+#        device = "jpeg", 
+#        path = depth_horizons_folder, 
+#        dpi=600)
+# 
+# ggplot(subset_100m, aes(x=newDepth)) + 
+#   geom_histogram(binwidth=30, aes(y=..density..), colour="black", fill="white")+
+#   ggtitle("100 m subset")+
+#   xlab("OBIS record depth where GEBCO depth is 100 m")+
+#   ylab("Density")+
+#   scale_x_continuous(limits=c(0, max(subset_100m$newDepth)), breaks = seq(0, max(subset_100m$newDepth), 200))+
+#   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+# 
+# ggsave("Histogram_horizon_100m_TaxonID2_global.jpeg", 
+#        plot=last_plot(), 
+#        device = "jpeg", 
+#        path = depth_horizons_folder, 
+#        dpi=600)
+# 
+# ggplot(subset_150m, aes(x=newDepth)) + 
+#   geom_histogram(binwidth=20, aes(y=..density..), colour="black", fill="white")+
+#   ggtitle("150 m subset")+
+#   xlab("OBIS record depth where GEBCO depth is 200 m")+
+#   ylab("Density")+
+#   scale_x_continuous(limits=c(0, max(subset_150m$newDepth)), breaks = seq(0, max(subset_150m$newDepth), 100))+
+#   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+# 
+# ggsave("Histogram_horizon_150m_TaxonID2_global.jpeg", 
+#        plot=last_plot(), 
+#        device = "jpeg", 
+#        path = depth_horizons_folder, 
+#        dpi=600)
+# 
+# ggplot(subset_200m, aes(x=newDepth)) + 
+#   geom_histogram(binwidth=20, aes(y=..density..), colour="black", fill="white")+
+#   ggtitle("200 m subset")+
+#   xlab("OBIS record depth where GEBCO depth is 200 m")+
+#   ylab("Density")+
+#   scale_x_continuous(limits=c(0, max(subset_200m$newDepth)), breaks = seq(0, max(subset_200m$newDepth), 100))+
+#   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+# 
+# ggsave("Histogram_horizon_200m_TaxonID2_global.jpeg", 
+#        plot=last_plot(), 
+#        device = "jpeg", 
+#        path = depth_horizons_folder, 
+#        dpi=600)
+# 
+# ggplot(subset_400m, aes(x=newDepth)) + 
+#   geom_histogram(binwidth=20, aes(y=..density..), colour="black", fill="white")+
+#   ggtitle("400 m subset")+
+#   xlab("OBIS record depth where GEBCO depth is 400 m")+
+#   ylab("Density")+
+#   scale_x_continuous(limits=c(0, max(subset_400m$newDepth)), breaks = seq(0, max(subset_400m$newDepth), 100))+
+#   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+# 
+# ggsave("Histogram_horizon_400m_TaxonID2_global.jpeg", 
+#        plot=last_plot(), 
+#        device = "jpeg", 
+#        path = depth_horizons_folder, 
+#        dpi=600)
+# 
+# ggplot(subset_600m, aes(x=newDepth)) + 
+#   geom_histogram(binwidth=20, aes(y=..density..), colour="black", fill="white")+
+#   ggtitle("600 m subset")+
+#   xlab("OBIS record depth where GEBCO depth is 600 m")+
+#   ylab("Density")+
+#   scale_x_continuous(limits=c(0, max(subset_600m$newDepth)), breaks = seq(0, max(subset_600m$newDepth), 100))+
+#   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+# 
+# ggsave("Histogram_horizon_600m_TaxonID2_global.jpeg", 
+#        plot=last_plot(), 
+#        device = "jpeg", 
+#        path = depth_horizons_folder, 
+#        dpi=600)
+# 
+# ggplot(subset_800m, aes(x=newDepth)) + 
+#   geom_histogram(binwidth=20, aes(y=..density..), colour="black", fill="white")+
+#   ggtitle("800 m subset")+
+#   xlab("OBIS record depth where GEBCO depth is 800 m")+
+#   ylab("Density")+
+#   scale_x_continuous(limits=c(0, max(subset_800m$newDepth)), breaks = seq(0, max(subset_800m$newDepth), 100))+
+#   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+# 
+# ggsave("Histogram_horizon_800m_TaxonID2_global.jpeg", 
+#        plot=last_plot(), 
+#        device = "jpeg", 
+#        path = depth_horizons_folder, 
+#        dpi=600)
+# 
+# ggplot(subset_1000m, aes(x=newDepth)) + 
+#   geom_histogram(binwidth=20, aes(y=..density..), colour="black", fill="white")+
+#   ggtitle("1000 m subset")+
+#   xlab("OBIS record depth where GEBCO depth is 1000 m")+
+#   ylab("Density")+
+#   scale_x_continuous(limits=c(0, max(subset_1000m$newDepth)), breaks = seq(0, max(subset_1000m$newDepth), 500))+
+#   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+# 
+# ggsave("Histogram_horizon_1000m_TaxonID2_global.jpeg", 
+#        plot=last_plot(), 
+#        device = "jpeg", 
+#        path = depth_horizons_folder, 
+#        dpi=600)
+# 
+# ggplot(subset_3000m, aes(x=newDepth)) + 
+#   geom_histogram(binwidth=20, aes(y=..density..), colour="black", fill="white")+
+#   ggtitle("3000 m subset")+
+#   xlab("OBIS record depth where GEBCO depth is 3000 m")+
+#   ylab("Density")+
+#   scale_x_continuous(limits=c(0, max(subset_3000m$newDepth)), breaks = seq(0, max(subset_3000m$newDepth), 100))+
+#   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+# 
+# ggsave("Histogram_horizon_3000m_TaxonID2_global.jpeg", 
+#        plot=last_plot(), 
+#        device = "jpeg", 
+#        path = depth_horizons_folder, 
+#        dpi=600)
+# 
+# ggplot(subset_5000m, aes(x=newDepth)) + 
+#   geom_histogram(binwidth=20, aes(y=..density..), colour="black", fill="white")+
+#   ggtitle("5000 m subset")+
+#   xlab("OBIS record depth where GEBCO depth is 5000 m")+
+#   ylab("Density")+
+#   scale_x_continuous(limits=c(0, max(subset_5000m$newDepth)), breaks = seq(0, max(subset_5000m$newDepth), 200))+
+#   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+# 
+# ggsave("Histogram_horizon_5000m_TaxonID2_global.jpeg", 
+#        plot=last_plot(), 
+#        device = "jpeg", 
+#        path = depth_horizons_folder, 
+#        dpi=600)
+# 
+# ggplot(subset_7000m, aes(x=newDepth)) +
+#   geom_histogram(binwidth=100, aes(y=..density..), colour="black", fill="white")+
+#   ggtitle("7000 m subset")+
+#   xlab("OBIS record depth where GEBCO depth is 7000 m")+
+#   ylab("Density")+
+#   scale_x_continuous(limits=c(0, max(subset_7000m$newDepth)), breaks = seq(0, max(subset_7000m$newDepth), 500))+
+#   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+# 
+# ggsave("Histogram_horizon_7000m_TaxonID2_global.jpeg",
+#        plot=last_plot(),
+#        device = "jpeg",
+#        path = depth_horizons_folder,
+#        dpi=600)
+# 
+# ggplot(subset_10000m, aes(x=newDepth)) + 
+#   geom_histogram(binwidth=100, aes(y=..density..), colour="black", fill="white")+
+#   ggtitle("10000 m subset")+
+#   xlab("OBIS record depth where GEBCO depth is 10000 m")+
+#   ylab("Density")+
+#   scale_x_continuous(limits=c(0, max(subset_10000m$newDepth)), breaks = seq(0, max(subset_10000m$newDepth), 500))+
+#   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+# 
+# ggsave("Histogram_horizon_10000m_TaxonID2_global.jpeg", 
+#        plot=last_plot(), 
+#        device = "jpeg", 
+#        path = depth_horizons_folder, 
+#        dpi=600)
+```
+
+## Clustering
+
+The following information is from a super useful [stack exchange thread](https://stats.stackexchange.com/questions/241381/clustering-methods-that-do-not-require-pre-specifying-the-number-of-clusters). **Clustering algorithms are often categorized into broad kingdoms:**
+
+-   Partitioning algorithms (like k-means and it's progeny and CLARA for big data) - requires number of clusters *a priori*
+-   Hierarchical clustering (as @Tim describes) - doesn't require the number of clusters *a priori*, but you do need to pick the number of clusters after (basically you choose where the dendrogram cut-off is)
+-   Density based clustering (such as DBSCAN) - doesn't require you to choose the number of clusters before or after the test, but it does require specification of a minimum number of points for a 'neighborhood'---although there are defaults, so in some sense you could skip specifying that---which does put a floor on the number of patterns in a cluster
+-   Model based clustering (e.g., finite Gaussian mixture models, or Latent Class Analysis) - requires none of the above settings, but it does require parametric assumptions about the data generating process
+
+I can't seem to find a clustering algorithm that never requires you to specify a number of clusters, a minimum number of data per cluster, or any pattern / arrangement of data within clusters. I don't see how there could be.
+
+#### Remove 95th percentile
+
+The tails are confusing the clustering too much. Therefore, I'm going to 'clean' all the subsets by removing data past the 95th percentile.
+
+```{r}
+subset_30m<-subset_30m%>%
+  filter(newDepth<(quantile(subset_30m$newDepth, probs = c(0.95))))
+
+subset_40m<-subset_40m%>%
+  filter(newDepth<(quantile(subset_40m$newDepth, probs = c(0.95))))
+
+subset_50m<-subset_50m%>%
+  filter(newDepth<(quantile(subset_50m$newDepth, probs = c(0.95))))
+
+subset_100m<-subset_100m%>%
+  filter(newDepth<(quantile(subset_100m$newDepth, probs = c(0.95))))
+
+subset_150m<-subset_150m%>%
+  filter(newDepth<(quantile(subset_150m$newDepth, probs = c(0.95))))
+
+subset_200m<-subset_200m%>%
+  filter(newDepth<(quantile(subset_200m$newDepth, probs = c(0.95))))
+
+subset_400m<-subset_400m%>%
+  filter(newDepth<(quantile(subset_400m$newDepth, probs = c(0.95))))
+
+subset_600m<-subset_600m%>%
+  filter(newDepth<(quantile(subset_600m$newDepth, probs = c(0.95))))
+
+subset_800m<-subset_800m%>%
+  filter(newDepth<(quantile(subset_800m$newDepth, probs = c(0.95))))
+
+subset_1000m<-subset_1000m%>%
+  filter(newDepth<(quantile(subset_1000m$newDepth, probs = c(0.95))))
+
+subset_3000m<-subset_3000m%>%
+  filter(newDepth<(quantile(subset_3000m$newDepth, probs = c(0.95))))
+
+subset_5000m<-subset_5000m%>%
+  filter(newDepth<(quantile(subset_5000m$newDepth, probs = c(0.95))))
+
+subset_7000m<-subset_7000m%>%
+  filter(newDepth<(quantile(subset_7000m$newDepth, probs = c(0.95))))
+
+subset_10000m<-subset_10000m%>%
+  filter(newDepth<(quantile(subset_10000m$newDepth, probs = c(0.95))))
+```
+
+I want to keep a record of what this 'clean' data looks like so I'm going to make and save the plots.
+
+```{r}
+# ggplot(subset_7000m, aes(x = sample(1:nrow(subset_7000m)), y = newDepth)) +
+#   geom_point(color='#2494a2') +
+#   theme_bw()+
+#   scale_y_reverse() +
+#   xlab("Index") +
+#   ylab("OBIS Record Depth") +
+#   labs(title = "OBIS record depths for the 7000 m subset")+
+#   theme(plot.title = element_text(hjust = 0.5, size = 18),
+#         plot.subtitle = element_text(hjust = 0.5, face = "italic", size = 16),
+#         axis.text = element_text(size = 18),
+#         axis.title = element_text(size = 18),
+#         legend.text = element_text(size = 18),
+#         legend.title = element_text(size = 18))
+# 
+# ggsave("Depth_scatterplots_95thp_7000m_TaxonID2_global.jpeg",
+#        plot=last_plot(),
+#        device = "jpeg",
+#        width = 16,
+#        height = 9,
+#        path = percentiles_folder,
+#        dpi=600)
+```
+
+#### Expert eyeballing of data
+
+Based on looking at the plots in the 'percentiles_folder' (step 5), I can say I would expect the benthic could splits to occur at the following intervals:
+
+```{r}
+expert_splits<-read.csv(paste0(top1_clusters_folder, "/expected_cluster_splits_expert_opinion.csv"), head=T, sep=",")
+
+expert_splits
+```
+
+#### Preparing data & running CLARA
+
+First you have to normalize the data.
+
+```{r}
+dmean <-mean(subset_1000m$newDepth)
+dstdev <-sd(subset_1000m$newDepth)
+dnorm <-((subset_1000m$newDepth)-dmean)/dstdev
+dmin <-min(subset_1000m$newDepth)
+dmax <-max(subset_1000m$newDepth)
+dcor <-((dnorm-dmin)/(dmax-dmin))
+
+dDF <- data.frame(dcor)
+names(dDF)[1] <- "depth"
+
+```
+
+Then you run the pamk() function using average silhouette widths as the indicator of cluster strength.
+
+```{r}
+#| output: false
+#| message: false
+#| echo: false
+#| include: false
+
+clara_asw <- pamk(dDF,krange=2:10,criterion="asw", usepam=FALSE,
+                  scaling=FALSE, diss=inherits(dDF, "Euclidean"),
+                  critout=TRUE)
+
+asw<-as.data.frame(clara_asw$crit)
+noclusters <- as.data.frame(as.numeric(c(1:10)))
+results_asw<-cbind(noclusters, asw)%>%
+  dplyr::rename("clusters"=1,
+                "score"=2)
+```
+
+#### Comparing results
+
+Plot the ASW to select the best number of clusters to use.
+
+```{r}
+#| echo: false
+
+ggplot(data=results_asw, aes(x=clusters, y=score)) +
+  geom_line(color='#2494a2')+
+  geom_point(color='#2494a2')+
+  theme_bw()+
+  labs(title = "ASW scores for between 2 and 10 clusters",
+       subtitle = "10000 m subset (95th Percentile)")+
+  ylab("Average Silhouette Width")+
+  xlab("Number of clusters")+
+  scale_colour_Bede("SAS")+
+  theme(plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", size = 16),
+        axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18))+
+  scale_x_continuous(limits=c(1, 10), breaks = seq(1, 10, 1))
+
+ggsave("Cluster_ASWs_10000m_TaxonID2_global.jpeg",
+       plot=last_plot(),
+       device = "jpeg",
+       width = 16,
+       height = 9,
+       path = clustering_results_folder,
+       dpi=600)
+
+```
+
+Combined ASWs plot:
+
+```{r}
+asws<-read.csv(paste0(clustering_results_folder, "clara_95thp_results_combined_top10.csv"), head=T, sep=",")
+
+asws$Subset<-as.character(asws$Subset)
+
+ggplot(asws, aes(x=clusters, y=score, group=Subset)) +
+  geom_line(aes(color=Subset))+
+  geom_point(aes(color=Subset))+
+  theme_bw()+
+  labs(title = "ASW scores for between 2 and 10 clusters")+
+  ylab("Average Silhouette Width")+
+  xlab("Number of clusters")+
+  scale_colour_Bede("main")+
+  theme(plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", size = 16),
+        axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18))+
+  scale_x_continuous(limits=c(1, 10), breaks = seq(1, 10, 1))
+
+# ggsave("Cluster_ASWs_TaxonID2_global.jpeg",
+#        plot=last_plot(),
+#        device = "jpeg",
+#        width = 16,
+#        height = 9,
+#        path = clustering_results_folder,
+#        dpi=600)
+
+```
+
+Note: I'm using ASW as when trialed with CH index seems to quite often just increase linearly from 2 to 40. I read up on how to interpret this and found (this stack exchange article)\[https://stats.stackexchange.com/questions/52838/what-is-an-acceptable-value-of-the-calinski-harabasz-ch-criterion\] to be helpful. Based on this, CH index indicates the best number of clusters when there's a hinge. Given CH therefore doesn't seem to favor clusters in my data, likely for the reasons outlined in that article, I'm using ASW only to determine the best number of clusters **per** subset.
+
+```{r}
+
+top3_clusters<-read.csv(paste0(clustering_results_folder, "clara_95thp_results_combined_top3.csv"), sep=",", head=T)
+
+top3_clusters
+```
+
+#### 1st ranking
+
+The above table contains the top three cluster combinations for each subset. Let's start by using the top scoring combination for each subset.
+
+```{r}
+top1_clusters<-top3_clusters%>%
+  filter(ranking==1)
+
+top1_clusters
+```
+
+##### 30 m
+
+```{r}
+dmean <-mean(subset_30m$newDepth)
+dstdev <-sd(subset_30m$newDepth)
+dnorm <-((subset_30m$newDepth)-dmean)/dstdev
+dmin <-min(subset_30m$newDepth)
+dmax <-max(subset_30m$newDepth)
+dcor <-((dnorm-dmin)/(dmax-dmin))
+
+dDF <- data.frame(dcor)
+names(dDF)[1] <- "depth"
+
+clara <- pamk(dDF,krange=9,criterion="asw", usepam=FALSE, # CHANGE THE NUMBER
+                  scaling=FALSE, diss=inherits(dDF, "Euclidean"),
+                  critout=TRUE)
+
+clara_df <- data.frame(subset_30m$newDepth, clara$pamobject$clustering)%>%
+  dplyr::rename("newDepth" = "subset_30m.newDepth","cluster" = "clara.pamobject.clustering")
+
+clara_df$cluster<-as.character(clara_df$cluster)
+
+clara_max_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==max(newDepth))%>%
+  unique()%>%
+  dplyr::rename("max_depth" = "newDepth")
+
+clara_min_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==min(newDepth))%>%
+  unique()%>%
+  dplyr::rename("min_depth" = "newDepth")
+
+clara_summary<-left_join(clara_min_summ, clara_max_summ, by = join_by(cluster))%>%
+  arrange(min_depth)
+
+clara_summary
+
+write.csv(clara_summary, paste0(top1_clusters_folder, "clara_top1_cluster_combination_30.csv"), row.names = F)
+
+```
+
+```{r}
+clara_df<-clara_df%>%
+  mutate(Dataset=case_when(
+    cluster=="2" ~ "Benthic", # CHANGE NUMBERS 
+    cluster!="2" ~ "Pelagic"))
+
+ggplot(clara_df, aes(x = sample(1:nrow(clara_df)), y = newDepth, group=Dataset)) +
+  geom_point(aes(color=Dataset)) +
+  scale_colour_Bede("SAS")+
+  theme_bw()+
+  scale_y_reverse() +
+  xlab("Index") +
+  ylab("OBIS Record Depth") +
+  labs(title = "Clustered OBIS record depths for the 30 m subset")+
+  theme(plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", size = 16),
+        axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18))
+
+ggsave("Benthic_Pelagic_Split_30m_TaxonID2_global.jpeg",
+       plot=last_plot(),
+       device = "jpeg",
+       width = 16,
+       height = 9,
+       path = top1_clusters_folder,
+       dpi=600)
+```
+
+##### 40 m
+
+```{r}
+dmean <-mean(subset_40m$newDepth)
+dstdev <-sd(subset_40m$newDepth)
+dnorm <-((subset_40m$newDepth)-dmean)/dstdev
+dmin <-min(subset_40m$newDepth)
+dmax <-max(subset_40m$newDepth)
+dcor <-((dnorm-dmin)/(dmax-dmin))
+
+dDF <- data.frame(dcor)
+names(dDF)[1] <- "depth"
+
+clara <- pamk(dDF,krange=10,criterion="asw", usepam=FALSE, 
+                  scaling=FALSE, diss=inherits(dDF, "Euclidean"),
+                  critout=TRUE)
+
+clara_df <- data.frame(subset_40m$newDepth, clara$pamobject$clustering)%>%
+  dplyr::rename("newDepth" = "subset_40m.newDepth","cluster" = "clara.pamobject.clustering")
+
+clara_df$cluster<-as.character(clara_df$cluster)
+
+clara_max_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==max(newDepth))%>%
+  unique()%>%
+  dplyr::rename("max_depth" = "newDepth")
+
+clara_min_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==min(newDepth))%>%
+  unique()%>%
+  dplyr::rename("min_depth" = "newDepth")
+
+clara_summary<-left_join(clara_min_summ, clara_max_summ, by = join_by(cluster))%>%
+  arrange(min_depth)
+
+clara_summary
+
+write.csv(clara_summary, paste0(top1_clusters_folder, "clara_top1_cluster_combination_40.csv"), row.names = F)
+
+```
+
+```{r}
+clara_df<-clara_df%>%
+  mutate(Dataset=case_when(
+    cluster=="10" ~ "Benthic", # CHANGE NUMBERS 
+    cluster!="10" ~ "Pelagic"))
+
+ggplot(clara_df, aes(x = sample(1:nrow(clara_df)), y = newDepth, group=Dataset)) +
+  geom_point(aes(color=Dataset)) +
+  scale_colour_Bede("SAS")+
+  theme_bw()+
+  scale_y_reverse() +
+  xlab("Index") +
+  ylab("OBIS Record Depth") +
+  labs(title = "Clustered OBIS record depths for the 40 m subset")+
+  theme(plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", size = 16),
+        axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18))
+
+ggsave("Benthic_Pelagic_Split_40m_TaxonID2_global.jpeg",
+       plot=last_plot(),
+       device = "jpeg",
+       width = 16,
+       height = 9,
+       path = top1_clusters_folder,
+       dpi=600)
+```
+
+##### 50 m
+
+```{r}
+dmean <-mean(subset_50m$newDepth)
+dstdev <-sd(subset_50m$newDepth)
+dnorm <-((subset_50m$newDepth)-dmean)/dstdev
+dmin <-min(subset_50m$newDepth)
+dmax <-max(subset_50m$newDepth)
+dcor <-((dnorm-dmin)/(dmax-dmin))
+
+dDF <- data.frame(dcor)
+names(dDF)[1] <- "depth"
+
+clara <- pamk(dDF,krange=9,criterion="asw", usepam=FALSE, 
+                  scaling=FALSE, diss=inherits(dDF, "Euclidean"),
+                  critout=TRUE)
+
+clara_df <- data.frame(subset_50m$newDepth, clara$pamobject$clustering)%>%
+  dplyr::rename("newDepth" = "subset_50m.newDepth","cluster" = "clara.pamobject.clustering")
+
+clara_df$cluster<-as.character(clara_df$cluster)
+
+clara_max_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==max(newDepth))%>%
+  unique()%>%
+  dplyr::rename("max_depth" = "newDepth")
+
+clara_min_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==min(newDepth))%>%
+  unique()%>%
+  dplyr::rename("min_depth" = "newDepth")
+
+clara_summary<-left_join(clara_min_summ, clara_max_summ, by = join_by(cluster))%>%
+  arrange(min_depth)
+
+clara_summary
+
+write.csv(clara_summary, paste0(top1_clusters_folder, "clara_top1_cluster_combination_50.csv"), row.names = F)
+
+```
+
+```{r}
+clara_df<-clara_df%>%
+  mutate(Dataset=case_when(
+    cluster=="1" ~ "Benthic", # CHANGE NUMBERS 
+    cluster!="1" ~ "Pelagic"))
+
+ggplot(clara_df, aes(x = sample(1:nrow(clara_df)), y = newDepth, group=Dataset)) +
+  geom_point(aes(color=Dataset)) +
+  scale_colour_Bede("SAS")+
+  theme_bw()+
+  scale_y_reverse() +
+  xlab("Index") +
+  ylab("OBIS Record Depth") +
+  labs(title = "Clustered OBIS record depths for the 50 m subset")+
+  theme(plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", size = 16),
+        axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18))
+
+ggsave("Benthic_Pelagic_Split_50m_TaxonID2_global.jpeg",
+       plot=last_plot(),
+       device = "jpeg",
+       width = 16,
+       height = 9,
+       path = top1_clusters_folder,
+       dpi=600)
+```
+
+##### 100 m
+
+```{r}
+dmean <-mean(subset_100m$newDepth)
+dstdev <-sd(subset_100m$newDepth)
+dnorm <-((subset_100m$newDepth)-dmean)/dstdev
+dmin <-min(subset_100m$newDepth)
+dmax <-max(subset_100m$newDepth)
+dcor <-((dnorm-dmin)/(dmax-dmin))
+
+dDF <- data.frame(dcor)
+names(dDF)[1] <- "depth"
+
+clara <- pamk(dDF,krange=2,criterion="asw", usepam=FALSE, 
+                  scaling=FALSE, diss=inherits(dDF, "Euclidean"),
+                  critout=TRUE)
+
+clara_df <- data.frame(subset_100m$newDepth, clara$pamobject$clustering)%>%
+  dplyr::rename("newDepth" = "subset_100m.newDepth","cluster" = "clara.pamobject.clustering")
+
+clara_df$cluster<-as.character(clara_df$cluster)
+
+clara_max_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==max(newDepth))%>%
+  unique()%>%
+  dplyr::rename("max_depth" = "newDepth")
+
+clara_min_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==min(newDepth))%>%
+  unique()%>%
+  dplyr::rename("min_depth" = "newDepth")
+
+clara_summary<-left_join(clara_min_summ, clara_max_summ, by = join_by(cluster))%>%
+  arrange(min_depth)
+
+clara_summary
+
+write.csv(clara_summary, paste0(top1_clusters_folder, "clara_top1_cluster_combination_100.csv"), row.names = F)
+
+```
+
+```{r}
+clara_df<-clara_df%>%
+  mutate(Dataset=case_when(
+    cluster=="1" ~ "Benthic", # CHANGE NUMBERS 
+    cluster!="1" ~ "Pelagic"))
+
+ggplot(clara_df, aes(x = sample(1:nrow(clara_df)), y = newDepth, group=Dataset)) +
+  geom_point(aes(color=Dataset)) +
+  scale_colour_Bede("SAS")+
+  theme_bw()+
+  scale_y_reverse() +
+  xlab("Index") +
+  ylab("OBIS Record Depth") +
+  labs(title = "Clustered OBIS record depths for the 100 m subset")+
+  theme(plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", size = 16),
+        axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18))
+
+ggsave("Benthic_Pelagic_Split_100m_TaxonID2_global.jpeg",
+       plot=last_plot(),
+       device = "jpeg",
+       width = 16,
+       height = 9,
+       path = top1_clusters_folder,
+       dpi=600)
+```
+
+##### 150 m
+
+```{r}
+dmean <-mean(subset_150m$newDepth)
+dstdev <-sd(subset_150m$newDepth)
+dnorm <-((subset_150m$newDepth)-dmean)/dstdev
+dmin <-min(subset_150m$newDepth)
+dmax <-max(subset_150m$newDepth)
+dcor <-((dnorm-dmin)/(dmax-dmin))
+
+dDF <- data.frame(dcor)
+names(dDF)[1] <- "depth"
+
+clara <- pamk(dDF,krange=2,criterion="asw", usepam=FALSE, 
+                  scaling=FALSE, diss=inherits(dDF, "Euclidean"),
+                  critout=TRUE)
+
+clara_df <- data.frame(subset_150m$newDepth, clara$pamobject$clustering)%>%
+  dplyr::rename("newDepth" = "subset_150m.newDepth","cluster" = "clara.pamobject.clustering")
+
+clara_df$cluster<-as.character(clara_df$cluster)
+
+clara_max_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==max(newDepth))%>%
+  unique()%>%
+  dplyr::rename("max_depth" = "newDepth")
+
+clara_min_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==min(newDepth))%>%
+  unique()%>%
+  dplyr::rename("min_depth" = "newDepth")
+
+clara_summary<-left_join(clara_min_summ, clara_max_summ, by = join_by(cluster))%>%
+  arrange(min_depth)
+
+clara_summary
+
+write.csv(clara_summary, paste0(top1_clusters_folder, "clara_top1_cluster_combination_150.csv"), row.names = F)
+
+```
+
+```{r}
+clara_df<-clara_df%>%
+  mutate(Dataset=case_when(
+    cluster=="3" ~ "Benthic", # CHANGE NUMBERS 
+    cluster!="3" ~ "Pelagic"))
+
+ggplot(clara_df, aes(x = sample(1:nrow(clara_df)), y = newDepth, group=Dataset)) +
+  geom_point(aes(color=Dataset)) +
+  scale_colour_Bede("SAS")+
+  theme_bw()+
+  scale_y_reverse() +
+  xlab("Index") +
+  ylab("OBIS Record Depth") +
+  labs(title = "Clustered OBIS record depths for the 150 m subset")+
+  theme(plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", size = 16),
+        axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18))
+
+ggsave("Benthic_Pelagic_Split_150m_TaxonID2_global.jpeg",
+       plot=last_plot(),
+       device = "jpeg",
+       width = 16,
+       height = 9,
+       path = top1_clusters_folder,
+       dpi=600)
+```
+
+##### 200 m
+
+```{r}
+dmean <-mean(subset_200m$newDepth)
+dstdev <-sd(subset_200m$newDepth)
+dnorm <-((subset_200m$newDepth)-dmean)/dstdev
+dmin <-min(subset_200m$newDepth)
+dmax <-max(subset_200m$newDepth)
+dcor <-((dnorm-dmin)/(dmax-dmin))
+
+dDF <- data.frame(dcor)
+names(dDF)[1] <- "depth"
+
+clara <- pamk(dDF,krange=2,criterion="asw", usepam=FALSE, 
+                  scaling=FALSE, diss=inherits(dDF, "Euclidean"),
+                  critout=TRUE)
+
+clara_df <- data.frame(subset_200m$newDepth, clara$pamobject$clustering)%>%
+  dplyr::rename("newDepth" = "subset_200m.newDepth","cluster" = "clara.pamobject.clustering")
+
+clara_df$cluster<-as.character(clara_df$cluster)
+
+clara_max_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==max(newDepth))%>%
+  unique()%>%
+  dplyr::rename("max_depth" = "newDepth")
+
+clara_min_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==min(newDepth))%>%
+  unique()%>%
+  dplyr::rename("min_depth" = "newDepth")
+
+clara_summary<-left_join(clara_min_summ, clara_max_summ, by = join_by(cluster))%>%
+  arrange(min_depth)
+
+clara_summary
+
+write.csv(clara_summary, paste0(top1_clusters_folder, "clara_top1_cluster_combination_200.csv"), row.names = F)
+
+```
+
+```{r}
+clara_df<-clara_df%>%
+  mutate(Dataset=case_when(
+    cluster=="1" ~ "Benthic", # CHANGE NUMBERS 
+    cluster!="1" ~ "Pelagic"))
+
+ggplot(clara_df, aes(x = sample(1:nrow(clara_df)), y = newDepth, group=Dataset)) +
+  geom_point(aes(color=Dataset)) +
+  scale_colour_Bede("SAS")+
+  theme_bw()+
+  scale_y_reverse() +
+  xlab("Index") +
+  ylab("OBIS Record Depth") +
+  labs(title = "Clustered OBIS record depths for the 200 m subset")+
+  theme(plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", size = 16),
+        axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18))
+
+ggsave("Benthic_Pelagic_Split_200m_TaxonID2_global.jpeg",
+       plot=last_plot(),
+       device = "jpeg",
+       width = 16,
+       height = 9,
+       path = top1_clusters_folder,
+       dpi=600)
+```
+
+##### 400 m
+
+```{r}
+dmean <-mean(subset_400m$newDepth)
+dstdev <-sd(subset_400m$newDepth)
+dnorm <-((subset_400m$newDepth)-dmean)/dstdev
+dmin <-min(subset_400m$newDepth)
+dmax <-max(subset_400m$newDepth)
+dcor <-((dnorm-dmin)/(dmax-dmin))
+
+dDF <- data.frame(dcor)
+names(dDF)[1] <- "depth"
+
+clara <- pamk(dDF,krange=2,criterion="asw", usepam=FALSE, 
+                  scaling=FALSE, diss=inherits(dDF, "Euclidean"),
+                  critout=TRUE)
+
+clara_df <- data.frame(subset_400m$newDepth, clara$pamobject$clustering)%>%
+  dplyr::rename("newDepth" = "subset_400m.newDepth","cluster" = "clara.pamobject.clustering")
+
+clara_df$cluster<-as.character(clara_df$cluster)
+
+clara_max_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==max(newDepth))%>%
+  unique()%>%
+  dplyr::rename("max_depth" = "newDepth")
+
+clara_min_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==min(newDepth))%>%
+  unique()%>%
+  dplyr::rename("min_depth" = "newDepth")
+
+clara_summary<-left_join(clara_min_summ, clara_max_summ, by = join_by(cluster))%>%
+  arrange(min_depth)
+
+clara_summary
+
+write.csv(clara_summary, paste0(top1_clusters_folder, "clara_top1_cluster_combination_400.csv"), row.names = F)
+
+```
+
+```{r}
+clara_df<-clara_df%>%
+  mutate(Dataset=case_when(
+    cluster=="2" ~ "Benthic", # CHANGE NUMBERS 
+    cluster!="2" ~ "Pelagic"))
+
+ggplot(clara_df, aes(x = sample(1:nrow(clara_df)), y = newDepth, group=Dataset)) +
+  geom_point(aes(color=Dataset)) +
+  scale_colour_Bede("SAS")+
+  theme_bw()+
+  scale_y_reverse() +
+  xlab("Index") +
+  ylab("OBIS Record Depth") +
+  labs(title = "Clustered OBIS record depths for the 400 m subset")+
+  theme(plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", size = 16),
+        axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18))
+
+ggsave("Benthic_Pelagic_Split_400m_TaxonID2_global.jpeg",
+       plot=last_plot(),
+       device = "jpeg",
+       width = 16,
+       height = 9,
+       path = top1_clusters_folder,
+       dpi=600)
+```
+
+##### 600 m
+
+```{r}
+dmean <-mean(subset_600m$newDepth)
+dstdev <-sd(subset_600m$newDepth)
+dnorm <-((subset_600m$newDepth)-dmean)/dstdev
+dmin <-min(subset_600m$newDepth)
+dmax <-max(subset_600m$newDepth)
+dcor <-((dnorm-dmin)/(dmax-dmin))
+
+dDF <- data.frame(dcor)
+names(dDF)[1] <- "depth"
+
+clara <- pamk(dDF,krange=4,criterion="asw", usepam=FALSE, 
+                  scaling=FALSE, diss=inherits(dDF, "Euclidean"),
+                  critout=TRUE)
+
+clara_df <- data.frame(subset_600m$newDepth, clara$pamobject$clustering)%>%
+  dplyr::rename("newDepth" = "subset_600m.newDepth","cluster" = "clara.pamobject.clustering")
+
+clara_df$cluster<-as.character(clara_df$cluster)
+
+clara_max_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==max(newDepth))%>%
+  unique()%>%
+  dplyr::rename("max_depth" = "newDepth")
+
+clara_min_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==min(newDepth))%>%
+  unique()%>%
+  dplyr::rename("min_depth" = "newDepth")
+
+clara_summary<-left_join(clara_min_summ, clara_max_summ, by = join_by(cluster))%>%
+  arrange(min_depth)
+
+clara_summary
+
+write.csv(clara_summary, paste0(top1_clusters_folder, "clara_top1_cluster_combination_600.csv"), row.names = F)
+
+```
+
+```{r}
+clara_df<-clara_df%>%
+  mutate(Dataset=case_when(
+    cluster=="1" ~ "Benthic", # CHANGE NUMBERS 
+    cluster!="1" ~ "Pelagic"))
+
+ggplot(clara_df, aes(x = sample(1:nrow(clara_df)), y = newDepth, group=Dataset)) +
+  geom_point(aes(color=Dataset)) +
+  scale_colour_Bede("SAS")+
+  theme_bw()+
+  scale_y_reverse() +
+  xlab("Index") +
+  ylab("OBIS Record Depth") +
+  labs(title = "Clustered OBIS record depths for the 600 m subset")+
+  theme(plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", size = 16),
+        axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18))
+
+ggsave("Benthic_Pelagic_Split_600m_TaxonID2_global.jpeg",
+       plot=last_plot(),
+       device = "jpeg",
+       width = 16,
+       height = 9,
+       path = top1_clusters_folder,
+       dpi=600)
+```
+
+##### 800 m
+
+```{r}
+dmean <-mean(subset_800m$newDepth)
+dstdev <-sd(subset_800m$newDepth)
+dnorm <-((subset_800m$newDepth)-dmean)/dstdev
+dmin <-min(subset_800m$newDepth)
+dmax <-max(subset_800m$newDepth)
+dcor <-((dnorm-dmin)/(dmax-dmin))
+
+dDF <- data.frame(dcor)
+names(dDF)[1] <- "depth"
+
+clara <- pamk(dDF,krange=2,criterion="asw", usepam=FALSE, 
+                  scaling=FALSE, diss=inherits(dDF, "Euclidean"),
+                  critout=TRUE)
+
+clara_df <- data.frame(subset_800m$newDepth, clara$pamobject$clustering)%>%
+  dplyr::rename("newDepth" = "subset_800m.newDepth","cluster" = "clara.pamobject.clustering")
+
+clara_df$cluster<-as.character(clara_df$cluster)
+
+clara_max_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==max(newDepth))%>%
+  unique()%>%
+  dplyr::rename("max_depth" = "newDepth")
+
+clara_min_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==min(newDepth))%>%
+  unique()%>%
+  dplyr::rename("min_depth" = "newDepth")
+
+clara_summary<-left_join(clara_min_summ, clara_max_summ, by = join_by(cluster))%>%
+  arrange(min_depth)
+
+clara_summary
+
+write.csv(clara_summary, paste0(top1_clusters_folder, "clara_top1_cluster_combination_800.csv"), row.names = F)
+
+```
+
+```{r}
+clara_df<-clara_df%>%
+  mutate(Dataset=case_when(
+    cluster=="1" ~ "Benthic", # CHANGE NUMBERS 
+    cluster!="1" ~ "Pelagic"))
+
+ggplot(clara_df, aes(x = sample(1:nrow(clara_df)), y = newDepth, group=Dataset)) +
+  geom_point(aes(color=Dataset)) +
+  scale_colour_Bede("SAS")+
+  theme_bw()+
+  scale_y_reverse() +
+  xlab("Index") +
+  ylab("OBIS Record Depth") +
+  labs(title = "Clustered OBIS record depths for the 800 m subset")+
+  theme(plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", size = 16),
+        axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18))
+
+ggsave("Benthic_Pelagic_Split_800m_TaxonID2_global.jpeg",
+       plot=last_plot(),
+       device = "jpeg",
+       width = 16,
+       height = 9,
+       path = top1_clusters_folder,
+       dpi=600)
+```
+
+##### 1000 m
+
+```{r}
+dmean <-mean(subset_1000m$newDepth)
+dstdev <-sd(subset_1000m$newDepth)
+dnorm <-((subset_1000m$newDepth)-dmean)/dstdev
+dmin <-min(subset_1000m$newDepth)
+dmax <-max(subset_1000m$newDepth)
+dcor <-((dnorm-dmin)/(dmax-dmin))
+
+dDF <- data.frame(dcor)
+names(dDF)[1] <- "depth"
+
+clara <- pamk(dDF,krange=3,criterion="asw", usepam=FALSE, 
+                  scaling=FALSE, diss=inherits(dDF, "Euclidean"),
+                  critout=TRUE)
+
+clara_df <- data.frame(subset_1000m$newDepth, clara$pamobject$clustering)%>%
+  dplyr::rename("newDepth" = "subset_1000m.newDepth","cluster" = "clara.pamobject.clustering")
+
+clara_df$cluster<-as.character(clara_df$cluster)
+
+clara_max_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==max(newDepth))%>%
+  unique()%>%
+  dplyr::rename("max_depth" = "newDepth")
+
+clara_min_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==min(newDepth))%>%
+  unique()%>%
+  dplyr::rename("min_depth" = "newDepth")
+
+clara_summary<-left_join(clara_min_summ, clara_max_summ, by = join_by(cluster))%>%
+  arrange(min_depth)
+
+clara_summary
+
+write.csv(clara_summary, paste0(top1_clusters_folder, "clara_top1_cluster_combination_1000.csv"), row.names = F)
+
+```
+
+```{r}
+clara_df<-clara_df%>%
+  mutate(Dataset=case_when(
+    cluster=="1" ~ "Benthic", # CHANGE NUMBERS 
+    cluster!="1" ~ "Pelagic"))
+
+ggplot(clara_df, aes(x = sample(1:nrow(clara_df)), y = newDepth, group=Dataset)) +
+  geom_point(aes(color=Dataset)) +
+  scale_colour_Bede("SAS")+
+  theme_bw()+
+  scale_y_reverse() +
+  xlab("Index") +
+  ylab("OBIS Record Depth") +
+  labs(title = "Clustered OBIS record depths for the 1000 m subset")+
+  theme(plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", size = 16),
+        axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18))
+
+ggsave("Benthic_Pelagic_Split_1000m_TaxonID2_global.jpeg",
+       plot=last_plot(),
+       device = "jpeg",
+       width = 16,
+       height = 9,
+       path = top1_clusters_folder,
+       dpi=600)
+```
+
+##### 3000 m
+
+```{r}
+dmean <-mean(subset_3000m$newDepth)
+dstdev <-sd(subset_3000m$newDepth)
+dnorm <-((subset_3000m$newDepth)-dmean)/dstdev
+dmin <-min(subset_3000m$newDepth)
+dmax <-max(subset_3000m$newDepth)
+dcor <-((dnorm-dmin)/(dmax-dmin))
+
+dDF <- data.frame(dcor)
+names(dDF)[1] <- "depth"
+
+clara <- pamk(dDF,krange=2,criterion="asw", usepam=FALSE, 
+                  scaling=FALSE, diss=inherits(dDF, "Euclidean"),
+                  critout=TRUE)
+
+clara_df <- data.frame(subset_3000m$newDepth, clara$pamobject$clustering)%>%
+  dplyr::rename("newDepth" = "subset_3000m.newDepth","cluster" = "clara.pamobject.clustering")
+
+clara_df$cluster<-as.character(clara_df$cluster)
+
+clara_max_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==max(newDepth))%>%
+  unique()%>%
+  dplyr::rename("max_depth" = "newDepth")
+
+clara_min_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==min(newDepth))%>%
+  unique()%>%
+  dplyr::rename("min_depth" = "newDepth")
+
+clara_summary<-left_join(clara_min_summ, clara_max_summ, by = join_by(cluster))%>%
+  arrange(min_depth)
+
+clara_summary
+
+write.csv(clara_summary, paste0(top1_clusters_folder, "clara_top1_cluster_combination_3000.csv"), row.names = F)
+
+```
+
+```{r}
+clara_df<-clara_df%>%
+  mutate(Dataset=case_when(
+    cluster=="1" ~ "Benthic", # CHANGE NUMBERS 
+    cluster!="1" ~ "Pelagic"))
+
+ggplot(clara_df, aes(x = sample(1:nrow(clara_df)), y = newDepth, group=Dataset)) +
+  geom_point(aes(color=Dataset)) +
+  scale_colour_Bede("SAS")+
+  theme_bw()+
+  scale_y_reverse() +
+  xlab("Index") +
+  ylab("OBIS Record Depth") +
+  labs(title = "Clustered OBIS record depths for the 3000 m subset")+
+  theme(plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", size = 16),
+        axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18))
+
+ggsave("Benthic_Pelagic_Split_3000m_TaxonID2_global.jpeg",
+       plot=last_plot(),
+       device = "jpeg",
+       width = 16,
+       height = 9,
+       path = top1_clusters_folder,
+       dpi=600)
+```
+
+##### 5000 m
+
+```{r}
+dmean <-mean(subset_5000m$newDepth)
+dstdev <-sd(subset_5000m$newDepth)
+dnorm <-((subset_5000m$newDepth)-dmean)/dstdev
+dmin <-min(subset_5000m$newDepth)
+dmax <-max(subset_5000m$newDepth)
+dcor <-((dnorm-dmin)/(dmax-dmin))
+
+dDF <- data.frame(dcor)
+names(dDF)[1] <- "depth"
+
+clara <- pamk(dDF,krange=2,criterion="asw", usepam=FALSE, 
+                  scaling=FALSE, diss=inherits(dDF, "Euclidean"),
+                  critout=TRUE)
+
+clara_df <- data.frame(subset_5000m$newDepth, clara$pamobject$clustering)%>%
+  dplyr::rename("newDepth" = "subset_5000m.newDepth","cluster" = "clara.pamobject.clustering")
+
+clara_df$cluster<-as.character(clara_df$cluster)
+
+clara_max_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==max(newDepth))%>%
+  unique()%>%
+  dplyr::rename("max_depth" = "newDepth")
+
+clara_min_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==min(newDepth))%>%
+  unique()%>%
+  dplyr::rename("min_depth" = "newDepth")
+
+clara_summary<-left_join(clara_min_summ, clara_max_summ, by = join_by(cluster))%>%
+  arrange(min_depth)
+
+clara_summary
+
+write.csv(clara_summary, paste0(top1_clusters_folder, "clara_top1_cluster_combination_5000.csv"), row.names = F)
+
+```
+
+```{r}
+clara_df<-clara_df%>%
+  mutate(Dataset=case_when(
+    cluster=="1" ~ "Benthic", # CHANGE NUMBERS 
+    cluster!="1" ~ "Pelagic"))
+
+ggplot(clara_df, aes(x = sample(1:nrow(clara_df)), y = newDepth, group=Dataset)) +
+  geom_point(aes(color=Dataset)) +
+  scale_colour_Bede("SAS")+
+  theme_bw()+
+  scale_y_reverse() +
+  xlab("Index") +
+  ylab("OBIS Record Depth") +
+  labs(title = "Clustered OBIS record depths for the 5000 m subset")+
+  theme(plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", size = 16),
+        axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18))
+
+ggsave("Benthic_Pelagic_Split_5000m_TaxonID2_global.jpeg",
+       plot=last_plot(),
+       device = "jpeg",
+       width = 16,
+       height = 9,
+       path = top1_clusters_folder,
+       dpi=600)
+```
+
+##### 7000 m
+
+```{r}
+dmean <-mean(subset_7000m$newDepth)
+dstdev <-sd(subset_7000m$newDepth)
+dnorm <-((subset_7000m$newDepth)-dmean)/dstdev
+dmin <-min(subset_7000m$newDepth)
+dmax <-max(subset_7000m$newDepth)
+dcor <-((dnorm-dmin)/(dmax-dmin))
+
+dDF <- data.frame(dcor)
+names(dDF)[1] <- "depth"
+
+clara <- pamk(dDF,krange=2,criterion="asw", usepam=FALSE, 
+                  scaling=FALSE, diss=inherits(dDF, "Euclidean"),
+                  critout=TRUE)
+
+clara_df <- data.frame(subset_7000m$newDepth, clara$pamobject$clustering)%>%
+  dplyr::rename("newDepth" = "subset_7000m.newDepth","cluster" = "clara.pamobject.clustering")
+
+clara_df$cluster<-as.character(clara_df$cluster)
+
+clara_max_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==max(newDepth))%>%
+  unique()%>%
+  dplyr::rename("max_depth" = "newDepth")
+
+clara_min_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==min(newDepth))%>%
+  unique()%>%
+  dplyr::rename("min_depth" = "newDepth")
+
+clara_summary<-left_join(clara_min_summ, clara_max_summ, by = join_by(cluster))%>%
+  arrange(min_depth)
+
+clara_summary
+
+write.csv(clara_summary, paste0(top1_clusters_folder, "clara_top1_cluster_combination_7000.csv"), row.names = F)
+
+```
+
+```{r}
+clara_df<-clara_df%>%
+  mutate(Dataset=case_when(
+    cluster=="2" ~ "Benthic", # CHANGE NUMBERS 
+    cluster!="2" ~ "Pelagic"))
+
+ggplot(clara_df, aes(x = sample(1:nrow(clara_df)), y = newDepth, group=Dataset)) +
+  geom_point(aes(color=Dataset)) +
+  scale_colour_Bede("SAS")+
+  theme_bw()+
+  scale_y_reverse() +
+  xlab("Index") +
+  ylab("OBIS Record Depth") +
+  labs(title = "Clustered OBIS record depths for the 7000 m subset")+
+  theme(plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", size = 16),
+        axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18))
+
+ggsave("Benthic_Pelagic_Split_7000m_TaxonID2_global.jpeg",
+       plot=last_plot(),
+       device = "jpeg",
+       width = 16,
+       height = 9,
+       path = top1_clusters_folder,
+       dpi=600)
+```
+
+##### 10000 m
+
+```{r}
+dmean <-mean(subset_10000m$newDepth)
+dstdev <-sd(subset_10000m$newDepth)
+dnorm <-((subset_10000m$newDepth)-dmean)/dstdev
+dmin <-min(subset_10000m$newDepth)
+dmax <-max(subset_10000m$newDepth)
+dcor <-((dnorm-dmin)/(dmax-dmin))
+
+dDF <- data.frame(dcor)
+names(dDF)[1] <- "depth"
+
+clara <- pamk(dDF,krange=2,criterion="asw", usepam=FALSE, 
+                  scaling=FALSE, diss=inherits(dDF, "Euclidean"),
+                  critout=TRUE)
+
+clara_df <- data.frame(subset_10000m$newDepth, clara$pamobject$clustering)%>%
+  dplyr::rename("newDepth" = "subset_10000m.newDepth","cluster" = "clara.pamobject.clustering")
+
+clara_df$cluster<-as.character(clara_df$cluster)
+
+clara_max_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==max(newDepth))%>%
+  unique()%>%
+  dplyr::rename("max_depth" = "newDepth")
+
+clara_min_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==min(newDepth))%>%
+  unique()%>%
+  dplyr::rename("min_depth" = "newDepth")
+
+clara_summary<-left_join(clara_min_summ, clara_max_summ, by = join_by(cluster))%>%
+  arrange(min_depth)
+
+clara_summary
+
+write.csv(clara_summary, paste0(top1_clusters_folder, "clara_top1_cluster_combination_10000.csv"), row.names = F)
+
+```
+
+```{r}
+clara_df<-clara_df%>%
+  mutate(Dataset=case_when(
+    cluster=="1" ~ "Benthic", # CHANGE NUMBERS 
+    cluster!="1" ~ "Pelagic"))
+
+ggplot(clara_df, aes(x = sample(1:nrow(clara_df)), y = newDepth, group=Dataset)) +
+  geom_point(aes(color=Dataset)) +
+  scale_colour_Bede("SAS")+
+  theme_bw()+
+  scale_y_reverse() +
+  xlab("Index") +
+  ylab("OBIS Record Depth") +
+  labs(title = "Clustered OBIS record depths for the 10000 m subset")+
+  theme(plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", size = 16),
+        axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18))
+
+ggsave("Benthic_Pelagic_Split_10000m_TaxonID2_global.jpeg",
+       plot=last_plot(),
+       device = "jpeg",
+       width = 16,
+       height = 9,
+       path = top1_clusters_folder,
+       dpi=600)
+```
+
+#### 2nd ranking
+
+The above table contains the top three cluster combinations for each subset. Let's start by using the top scoring combination for each subset.
+
+```{r}
+top2_clusters<-top3_clusters%>%
+  filter(ranking==2)
+
+top2_clusters
+```
+
+##### 30 m
+
+```{r}
+dmean <-mean(subset_30m$newDepth)
+dstdev <-sd(subset_30m$newDepth)
+dnorm <-((subset_30m$newDepth)-dmean)/dstdev
+dmin <-min(subset_30m$newDepth)
+dmax <-max(subset_30m$newDepth)
+dcor <-((dnorm-dmin)/(dmax-dmin))
+
+dDF <- data.frame(dcor)
+names(dDF)[1] <- "depth"
+
+clara <- pamk(dDF,krange=10,criterion="asw", usepam=FALSE, # CHANGE THE NUMBER
+                  scaling=FALSE, diss=inherits(dDF, "Euclidean"),
+                  critout=TRUE)
+
+clara_df <- data.frame(subset_30m$newDepth, clara$pamobject$clustering)%>%
+  dplyr::rename("newDepth" = "subset_30m.newDepth","cluster" = "clara.pamobject.clustering")
+
+clara_df$cluster<-as.character(clara_df$cluster)
+
+clara_max_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==max(newDepth))%>%
+  unique()%>%
+  dplyr::rename("max_depth" = "newDepth")
+
+clara_min_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==min(newDepth))%>%
+  unique()%>%
+  dplyr::rename("min_depth" = "newDepth")
+
+clara_summary<-left_join(clara_min_summ, clara_max_summ, by = join_by(cluster))%>%
+  arrange(min_depth)
+
+clara_summary
+
+write.csv(clara_summary, paste0(top1_clusters_folder, "clara_top2_cluster_combination_30.csv"), row.names = F)
+
+```
+
+```{r}
+clara_df<-clara_df%>%
+  mutate(Dataset=case_when(
+    cluster=="2" ~ "Benthic", # CHANGE NUMBERS 
+    cluster!="2" ~ "Pelagic"))
+
+ggplot(clara_df, aes(x = sample(1:nrow(clara_df)), y = newDepth, group=Dataset)) +
+  geom_point(aes(color=Dataset)) +
+  scale_colour_Bede("SAS")+
+  theme_bw()+
+  scale_y_reverse() +
+  xlab("Index") +
+  ylab("OBIS Record Depth") +
+  labs(title = "Clustered OBIS record depths for the 30 m subset")+
+  theme(plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", size = 16),
+        axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18))
+
+ggsave("Benthic_Pelagic_Split_30m_TaxonID2_global.jpeg",
+       plot=last_plot(),
+       device = "jpeg",
+       width = 16,
+       height = 9,
+       path = top1_clusters_folder,
+       dpi=600)
+```
+
+##### 40 m
+
+```{r}
+dmean <-mean(subset_40m$newDepth)
+dstdev <-sd(subset_40m$newDepth)
+dnorm <-((subset_40m$newDepth)-dmean)/dstdev
+dmin <-min(subset_40m$newDepth)
+dmax <-max(subset_40m$newDepth)
+dcor <-((dnorm-dmin)/(dmax-dmin))
+
+dDF <- data.frame(dcor)
+names(dDF)[1] <- "depth"
+
+clara <- pamk(dDF,krange=6,criterion="asw", usepam=FALSE, 
+                  scaling=FALSE, diss=inherits(dDF, "Euclidean"),
+                  critout=TRUE)
+
+clara_df <- data.frame(subset_40m$newDepth, clara$pamobject$clustering)%>%
+  dplyr::rename("newDepth" = "subset_40m.newDepth","cluster" = "clara.pamobject.clustering")
+
+clara_df$cluster<-as.character(clara_df$cluster)
+
+clara_max_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==max(newDepth))%>%
+  unique()%>%
+  dplyr::rename("max_depth" = "newDepth")
+
+clara_min_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==min(newDepth))%>%
+  unique()%>%
+  dplyr::rename("min_depth" = "newDepth")
+
+clara_summary<-left_join(clara_min_summ, clara_max_summ, by = join_by(cluster))%>%
+  arrange(min_depth)
+
+clara_summary
+
+write.csv(clara_summary, paste0(top1_clusters_folder, "clara_top2_cluster_combination_40.csv"), row.names = F)
+
+```
+
+```{r}
+clara_df<-clara_df%>%
+  mutate(Dataset=case_when(
+    cluster=="6" ~ "Benthic", # CHANGE NUMBERS 
+    cluster!="6" ~ "Pelagic"))
+
+ggplot(clara_df, aes(x = sample(1:nrow(clara_df)), y = newDepth, group=Dataset)) +
+  geom_point(aes(color=Dataset)) +
+  scale_colour_Bede("SAS")+
+  theme_bw()+
+  scale_y_reverse() +
+  xlab("Index") +
+  ylab("OBIS Record Depth") +
+  labs(title = "Clustered OBIS record depths for the 40 m subset")+
+  theme(plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", size = 16),
+        axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18))
+
+ggsave("Benthic_Pelagic_Split_40m_TaxonID2_global.jpeg",
+       plot=last_plot(),
+       device = "jpeg",
+       width = 16,
+       height = 9,
+       path = top1_clusters_folder,
+       dpi=600)
+```
+
+##### 50 m
+
+```{r}
+dmean <-mean(subset_50m$newDepth)
+dstdev <-sd(subset_50m$newDepth)
+dnorm <-((subset_50m$newDepth)-dmean)/dstdev
+dmin <-min(subset_50m$newDepth)
+dmax <-max(subset_50m$newDepth)
+dcor <-((dnorm-dmin)/(dmax-dmin))
+
+dDF <- data.frame(dcor)
+names(dDF)[1] <- "depth"
+
+clara <- pamk(dDF,krange=2,criterion="asw", usepam=FALSE, 
+                  scaling=FALSE, diss=inherits(dDF, "Euclidean"),
+                  critout=TRUE)
+
+clara_df <- data.frame(subset_50m$newDepth, clara$pamobject$clustering)%>%
+  dplyr::rename("newDepth" = "subset_50m.newDepth","cluster" = "clara.pamobject.clustering")
+
+clara_df$cluster<-as.character(clara_df$cluster)
+
+clara_max_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==max(newDepth))%>%
+  unique()%>%
+  dplyr::rename("max_depth" = "newDepth")
+
+clara_min_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==min(newDepth))%>%
+  unique()%>%
+  dplyr::rename("min_depth" = "newDepth")
+
+clara_summary<-left_join(clara_min_summ, clara_max_summ, by = join_by(cluster))%>%
+  arrange(min_depth)
+
+clara_summary
+
+write.csv(clara_summary, paste0(top1_clusters_folder, "clara_top2_cluster_combination_50.csv"), row.names = F)
+
+```
+
+```{r}
+clara_df<-clara_df%>%
+  mutate(Dataset=case_when(
+    cluster=="1" ~ "Benthic", # CHANGE NUMBERS 
+    cluster!="1" ~ "Pelagic"))
+
+ggplot(clara_df, aes(x = sample(1:nrow(clara_df)), y = newDepth, group=Dataset)) +
+  geom_point(aes(color=Dataset)) +
+  scale_colour_Bede("SAS")+
+  theme_bw()+
+  scale_y_reverse() +
+  xlab("Index") +
+  ylab("OBIS Record Depth") +
+  labs(title = "Clustered OBIS record depths for the 50 m subset")+
+  theme(plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", size = 16),
+        axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18))
+
+ggsave("Benthic_Pelagic_Split_50m_TaxonID2_global.jpeg",
+       plot=last_plot(),
+       device = "jpeg",
+       width = 16,
+       height = 9,
+       path = top1_clusters_folder,
+       dpi=600)
+```
+
+##### 100 m
+
+```{r}
+dmean <-mean(subset_100m$newDepth)
+dstdev <-sd(subset_100m$newDepth)
+dnorm <-((subset_100m$newDepth)-dmean)/dstdev
+dmin <-min(subset_100m$newDepth)
+dmax <-max(subset_100m$newDepth)
+dcor <-((dnorm-dmin)/(dmax-dmin))
+
+dDF <- data.frame(dcor)
+names(dDF)[1] <- "depth"
+
+clara <- pamk(dDF,krange=9,criterion="asw", usepam=FALSE, 
+                  scaling=FALSE, diss=inherits(dDF, "Euclidean"),
+                  critout=TRUE)
+
+clara_df <- data.frame(subset_100m$newDepth, clara$pamobject$clustering)%>%
+  dplyr::rename("newDepth" = "subset_100m.newDepth","cluster" = "clara.pamobject.clustering")
+
+clara_df$cluster<-as.character(clara_df$cluster)
+
+clara_max_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==max(newDepth))%>%
+  unique()%>%
+  dplyr::rename("max_depth" = "newDepth")
+
+clara_min_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==min(newDepth))%>%
+  unique()%>%
+  dplyr::rename("min_depth" = "newDepth")
+
+clara_summary<-left_join(clara_min_summ, clara_max_summ, by = join_by(cluster))%>%
+  arrange(min_depth)
+
+clara_summary
+
+write.csv(clara_summary, paste0(top1_clusters_folder, "clara_top2_cluster_combination_100.csv"), row.names = F)
+
+```
+
+```{r}
+clara_df<-clara_df%>%
+  mutate(Dataset=case_when(
+    cluster=="4" ~ "Benthic", # CHANGE NUMBERS 
+    cluster!="4" ~ "Pelagic"))
+
+ggplot(clara_df, aes(x = sample(1:nrow(clara_df)), y = newDepth, group=Dataset)) +
+  geom_point(aes(color=Dataset)) +
+  scale_colour_Bede("SAS")+
+  theme_bw()+
+  scale_y_reverse() +
+  xlab("Index") +
+  ylab("OBIS Record Depth") +
+  labs(title = "Clustered OBIS record depths for the 100 m subset")+
+  theme(plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", size = 16),
+        axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18))
+
+ggsave("Benthic_Pelagic_Split_100m_TaxonID2_global.jpeg",
+       plot=last_plot(),
+       device = "jpeg",
+       width = 16,
+       height = 9,
+       path = top1_clusters_folder,
+       dpi=600)
+```
+
+##### 150 m
+
+```{r}
+dmean <-mean(subset_150m$newDepth)
+dstdev <-sd(subset_150m$newDepth)
+dnorm <-((subset_150m$newDepth)-dmean)/dstdev
+dmin <-min(subset_150m$newDepth)
+dmax <-max(subset_150m$newDepth)
+dcor <-((dnorm-dmin)/(dmax-dmin))
+
+dDF <- data.frame(dcor)
+names(dDF)[1] <- "depth"
+
+clara <- pamk(dDF,krange=3,criterion="asw", usepam=FALSE, 
+                  scaling=FALSE, diss=inherits(dDF, "Euclidean"),
+                  critout=TRUE)
+
+clara_df <- data.frame(subset_150m$newDepth, clara$pamobject$clustering)%>%
+  dplyr::rename("newDepth" = "subset_150m.newDepth","cluster" = "clara.pamobject.clustering")
+
+clara_df$cluster<-as.character(clara_df$cluster)
+
+clara_max_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==max(newDepth))%>%
+  unique()%>%
+  dplyr::rename("max_depth" = "newDepth")
+
+clara_min_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==min(newDepth))%>%
+  unique()%>%
+  dplyr::rename("min_depth" = "newDepth")
+
+clara_summary<-left_join(clara_min_summ, clara_max_summ, by = join_by(cluster))%>%
+  arrange(min_depth)
+
+clara_summary
+
+write.csv(clara_summary, paste0(top1_clusters_folder, "clara_top2_cluster_combination_150.csv"), row.names = F)
+
+```
+
+```{r}
+clara_df<-clara_df%>%
+  mutate(Dataset=case_when(
+    cluster=="3" ~ "Benthic", # CHANGE NUMBERS 
+    cluster!="3" ~ "Pelagic"))
+
+ggplot(clara_df, aes(x = sample(1:nrow(clara_df)), y = newDepth, group=Dataset)) +
+  geom_point(aes(color=Dataset)) +
+  scale_colour_Bede("SAS")+
+  theme_bw()+
+  scale_y_reverse() +
+  xlab("Index") +
+  ylab("OBIS Record Depth") +
+  labs(title = "Clustered OBIS record depths for the 150 m subset")+
+  theme(plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", size = 16),
+        axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18))
+
+ggsave("Benthic_Pelagic_Split_150m_TaxonID2_global.jpeg",
+       plot=last_plot(),
+       device = "jpeg",
+       width = 16,
+       height = 9,
+       path = top1_clusters_folder,
+       dpi=600)
+```
+
+##### 200 m
+
+```{r}
+dmean <-mean(subset_200m$newDepth)
+dstdev <-sd(subset_200m$newDepth)
+dnorm <-((subset_200m$newDepth)-dmean)/dstdev
+dmin <-min(subset_200m$newDepth)
+dmax <-max(subset_200m$newDepth)
+dcor <-((dnorm-dmin)/(dmax-dmin))
+
+dDF <- data.frame(dcor)
+names(dDF)[1] <- "depth"
+
+clara <- pamk(dDF,krange=7,criterion="asw", usepam=FALSE, 
+                  scaling=FALSE, diss=inherits(dDF, "Euclidean"),
+                  critout=TRUE)
+
+clara_df <- data.frame(subset_200m$newDepth, clara$pamobject$clustering)%>%
+  dplyr::rename("newDepth" = "subset_200m.newDepth","cluster" = "clara.pamobject.clustering")
+
+clara_df$cluster<-as.character(clara_df$cluster)
+
+clara_max_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==max(newDepth))%>%
+  unique()%>%
+  dplyr::rename("max_depth" = "newDepth")
+
+clara_min_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==min(newDepth))%>%
+  unique()%>%
+  dplyr::rename("min_depth" = "newDepth")
+
+clara_summary<-left_join(clara_min_summ, clara_max_summ, by = join_by(cluster))%>%
+  arrange(min_depth)
+
+clara_summary
+
+write.csv(clara_summary, paste0(top1_clusters_folder, "clara_top2_cluster_combination_200.csv"), row.names = F)
+
+```
+
+```{r}
+clara_df<-clara_df%>%
+  mutate(Dataset=case_when(
+    cluster=="2" ~ "Benthic", # CHANGE NUMBERS 
+    cluster!="2" ~ "Pelagic"))
+
+ggplot(clara_df, aes(x = sample(1:nrow(clara_df)), y = newDepth, group=Dataset)) +
+  geom_point(aes(color=Dataset)) +
+  scale_colour_Bede("SAS")+
+  theme_bw()+
+  scale_y_reverse() +
+  xlab("Index") +
+  ylab("OBIS Record Depth") +
+  labs(title = "Clustered OBIS record depths for the 200 m subset")+
+  theme(plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", size = 16),
+        axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18))
+
+ggsave("Benthic_Pelagic_Split_200m_TaxonID2_global.jpeg",
+       plot=last_plot(),
+       device = "jpeg",
+       width = 16,
+       height = 9,
+       path = top1_clusters_folder,
+       dpi=600)
+```
+
+##### 400 m
+
+```{r}
+dmean <-mean(subset_400m$newDepth)
+dstdev <-sd(subset_400m$newDepth)
+dnorm <-((subset_400m$newDepth)-dmean)/dstdev
+dmin <-min(subset_400m$newDepth)
+dmax <-max(subset_400m$newDepth)
+dcor <-((dnorm-dmin)/(dmax-dmin))
+
+dDF <- data.frame(dcor)
+names(dDF)[1] <- "depth"
+
+clara <- pamk(dDF,krange=3,criterion="asw", usepam=FALSE, 
+                  scaling=FALSE, diss=inherits(dDF, "Euclidean"),
+                  critout=TRUE)
+
+clara_df <- data.frame(subset_400m$newDepth, clara$pamobject$clustering)%>%
+  dplyr::rename("newDepth" = "subset_400m.newDepth","cluster" = "clara.pamobject.clustering")
+
+clara_df$cluster<-as.character(clara_df$cluster)
+
+clara_max_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==max(newDepth))%>%
+  unique()%>%
+  dplyr::rename("max_depth" = "newDepth")
+
+clara_min_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==min(newDepth))%>%
+  unique()%>%
+  dplyr::rename("min_depth" = "newDepth")
+
+clara_summary<-left_join(clara_min_summ, clara_max_summ, by = join_by(cluster))%>%
+  arrange(min_depth)
+
+clara_summary
+
+write.csv(clara_summary, paste0(top1_clusters_folder, "clara_top2_cluster_combination_400.csv"), row.names = F)
+
+```
+
+```{r}
+clara_df<-clara_df%>%
+  mutate(Dataset=case_when(
+    cluster=="2" ~ "Benthic", # CHANGE NUMBERS 
+    cluster!="2" ~ "Pelagic"))
+
+ggplot(clara_df, aes(x = sample(1:nrow(clara_df)), y = newDepth, group=Dataset)) +
+  geom_point(aes(color=Dataset)) +
+  scale_colour_Bede("SAS")+
+  theme_bw()+
+  scale_y_reverse() +
+  xlab("Index") +
+  ylab("OBIS Record Depth") +
+  labs(title = "Clustered OBIS record depths for the 400 m subset")+
+  theme(plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", size = 16),
+        axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18))
+
+ggsave("Benthic_Pelagic_Split_400m_TaxonID2_global.jpeg",
+       plot=last_plot(),
+       device = "jpeg",
+       width = 16,
+       height = 9,
+       path = top1_clusters_folder,
+       dpi=600)
+```
+
+##### 600 m
+
+```{r}
+dmean <-mean(subset_600m$newDepth)
+dstdev <-sd(subset_600m$newDepth)
+dnorm <-((subset_600m$newDepth)-dmean)/dstdev
+dmin <-min(subset_600m$newDepth)
+dmax <-max(subset_600m$newDepth)
+dcor <-((dnorm-dmin)/(dmax-dmin))
+
+dDF <- data.frame(dcor)
+names(dDF)[1] <- "depth"
+
+clara <- pamk(dDF,krange=5,criterion="asw", usepam=FALSE, 
+                  scaling=FALSE, diss=inherits(dDF, "Euclidean"),
+                  critout=TRUE)
+
+clara_df <- data.frame(subset_600m$newDepth, clara$pamobject$clustering)%>%
+  dplyr::rename("newDepth" = "subset_600m.newDepth","cluster" = "clara.pamobject.clustering")
+
+clara_df$cluster<-as.character(clara_df$cluster)
+
+clara_max_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==max(newDepth))%>%
+  unique()%>%
+  dplyr::rename("max_depth" = "newDepth")
+
+clara_min_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==min(newDepth))%>%
+  unique()%>%
+  dplyr::rename("min_depth" = "newDepth")
+
+clara_summary<-left_join(clara_min_summ, clara_max_summ, by = join_by(cluster))%>%
+  arrange(min_depth)
+
+clara_summary
+
+write.csv(clara_summary, paste0(top1_clusters_folder, "clara_top2_cluster_combination_600.csv"), row.names = F)
+
+```
+
+```{r}
+clara_df<-clara_df%>%
+  mutate(Dataset=case_when(
+    cluster=="1" ~ "Benthic", # CHANGE NUMBERS 
+    cluster!="1" ~ "Pelagic"))
+
+ggplot(clara_df, aes(x = sample(1:nrow(clara_df)), y = newDepth, group=Dataset)) +
+  geom_point(aes(color=Dataset)) +
+  scale_colour_Bede("SAS")+
+  theme_bw()+
+  scale_y_reverse() +
+  xlab("Index") +
+  ylab("OBIS Record Depth") +
+  labs(title = "Clustered OBIS record depths for the 600 m subset")+
+  theme(plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", size = 16),
+        axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18))
+
+ggsave("Benthic_Pelagic_Split_600m_TaxonID2_global.jpeg",
+       plot=last_plot(),
+       device = "jpeg",
+       width = 16,
+       height = 9,
+       path = top1_clusters_folder,
+       dpi=600)
+```
+
+##### 800 m
+
+```{r}
+dmean <-mean(subset_800m$newDepth)
+dstdev <-sd(subset_800m$newDepth)
+dnorm <-((subset_800m$newDepth)-dmean)/dstdev
+dmin <-min(subset_800m$newDepth)
+dmax <-max(subset_800m$newDepth)
+dcor <-((dnorm-dmin)/(dmax-dmin))
+
+dDF <- data.frame(dcor)
+names(dDF)[1] <- "depth"
+
+clara <- pamk(dDF,krange=10,criterion="asw", usepam=FALSE, 
+                  scaling=FALSE, diss=inherits(dDF, "Euclidean"),
+                  critout=TRUE)
+
+clara_df <- data.frame(subset_800m$newDepth, clara$pamobject$clustering)%>%
+  dplyr::rename("newDepth" = "subset_800m.newDepth","cluster" = "clara.pamobject.clustering")
+
+clara_df$cluster<-as.character(clara_df$cluster)
+
+clara_max_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==max(newDepth))%>%
+  unique()%>%
+  dplyr::rename("max_depth" = "newDepth")
+
+clara_min_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==min(newDepth))%>%
+  unique()%>%
+  dplyr::rename("min_depth" = "newDepth")
+
+clara_summary<-left_join(clara_min_summ, clara_max_summ, by = join_by(cluster))%>%
+  arrange(min_depth)
+
+clara_summary
+
+write.csv(clara_summary, paste0(top1_clusters_folder, "clara_top2_cluster_combination_800.csv"), row.names = F)
+
+```
+
+```{r}
+clara_df<-clara_df%>%
+  mutate(Dataset=case_when(
+    cluster=="1" ~ "Benthic", # CHANGE NUMBERS 
+    cluster!="1" ~ "Pelagic"))
+
+ggplot(clara_df, aes(x = sample(1:nrow(clara_df)), y = newDepth, group=Dataset)) +
+  geom_point(aes(color=Dataset)) +
+  scale_colour_Bede("SAS")+
+  theme_bw()+
+  scale_y_reverse() +
+  xlab("Index") +
+  ylab("OBIS Record Depth") +
+  labs(title = "Clustered OBIS record depths for the 800 m subset")+
+  theme(plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", size = 16),
+        axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18))
+
+ggsave("Benthic_Pelagic_Split_800m_TaxonID2_global.jpeg",
+       plot=last_plot(),
+       device = "jpeg",
+       width = 16,
+       height = 9,
+       path = top1_clusters_folder,
+       dpi=600)
+```
+
+##### 1000 m
+
+```{r}
+dmean <-mean(subset_1000m$newDepth)
+dstdev <-sd(subset_1000m$newDepth)
+dnorm <-((subset_1000m$newDepth)-dmean)/dstdev
+dmin <-min(subset_1000m$newDepth)
+dmax <-max(subset_1000m$newDepth)
+dcor <-((dnorm-dmin)/(dmax-dmin))
+
+dDF <- data.frame(dcor)
+names(dDF)[1] <- "depth"
+
+clara <- pamk(dDF,krange=2,criterion="asw", usepam=FALSE, 
+                  scaling=FALSE, diss=inherits(dDF, "Euclidean"),
+                  critout=TRUE)
+
+clara_df <- data.frame(subset_1000m$newDepth, clara$pamobject$clustering)%>%
+  dplyr::rename("newDepth" = "subset_1000m.newDepth","cluster" = "clara.pamobject.clustering")
+
+clara_df$cluster<-as.character(clara_df$cluster)
+
+clara_max_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==max(newDepth))%>%
+  unique()%>%
+  dplyr::rename("max_depth" = "newDepth")
+
+clara_min_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==min(newDepth))%>%
+  unique()%>%
+  dplyr::rename("min_depth" = "newDepth")
+
+clara_summary<-left_join(clara_min_summ, clara_max_summ, by = join_by(cluster))%>%
+  arrange(min_depth)
+
+clara_summary
+
+write.csv(clara_summary, paste0(top1_clusters_folder, "clara_top2_cluster_combination_1000.csv"), row.names = F)
+
+```
+
+```{r}
+clara_df<-clara_df%>%
+  mutate(Dataset=case_when(
+    cluster=="1" ~ "Benthic", # CHANGE NUMBERS 
+    cluster!="1" ~ "Pelagic"))
+
+ggplot(clara_df, aes(x = sample(1:nrow(clara_df)), y = newDepth, group=Dataset)) +
+  geom_point(aes(color=Dataset)) +
+  scale_colour_Bede("SAS")+
+  theme_bw()+
+  scale_y_reverse() +
+  xlab("Index") +
+  ylab("OBIS Record Depth") +
+  labs(title = "Clustered OBIS record depths for the 1000 m subset")+
+  theme(plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", size = 16),
+        axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18))
+
+ggsave("Benthic_Pelagic_Split_1000m_TaxonID2_global.jpeg",
+       plot=last_plot(),
+       device = "jpeg",
+       width = 16,
+       height = 9,
+       path = top1_clusters_folder,
+       dpi=600)
+```
+
+##### 3000 m
+
+```{r}
+dmean <-mean(subset_3000m$newDepth)
+dstdev <-sd(subset_3000m$newDepth)
+dnorm <-((subset_3000m$newDepth)-dmean)/dstdev
+dmin <-min(subset_3000m$newDepth)
+dmax <-max(subset_3000m$newDepth)
+dcor <-((dnorm-dmin)/(dmax-dmin))
+
+dDF <- data.frame(dcor)
+names(dDF)[1] <- "depth"
+
+clara <- pamk(dDF,krange=3,criterion="asw", usepam=FALSE, 
+                  scaling=FALSE, diss=inherits(dDF, "Euclidean"),
+                  critout=TRUE)
+
+clara_df <- data.frame(subset_3000m$newDepth, clara$pamobject$clustering)%>%
+  dplyr::rename("newDepth" = "subset_3000m.newDepth","cluster" = "clara.pamobject.clustering")
+
+clara_df$cluster<-as.character(clara_df$cluster)
+
+clara_max_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==max(newDepth))%>%
+  unique()%>%
+  dplyr::rename("max_depth" = "newDepth")
+
+clara_min_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==min(newDepth))%>%
+  unique()%>%
+  dplyr::rename("min_depth" = "newDepth")
+
+clara_summary<-left_join(clara_min_summ, clara_max_summ, by = join_by(cluster))%>%
+  arrange(min_depth)
+
+clara_summary
+
+write.csv(clara_summary, paste0(top1_clusters_folder, "clara_top2_cluster_combination_3000.csv"), row.names = F)
+
+```
+
+```{r}
+clara_df<-clara_df%>%
+  mutate(Dataset=case_when(
+    cluster=="2" ~ "Benthic", # CHANGE NUMBERS 
+    cluster!="2" ~ "Pelagic"))
+
+ggplot(clara_df, aes(x = sample(1:nrow(clara_df)), y = newDepth, group=Dataset)) +
+  geom_point(aes(color=Dataset)) +
+  scale_colour_Bede("SAS")+
+  theme_bw()+
+  scale_y_reverse() +
+  xlab("Index") +
+  ylab("OBIS Record Depth") +
+  labs(title = "Clustered OBIS record depths for the 3000 m subset")+
+  theme(plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", size = 16),
+        axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18))
+
+ggsave("Benthic_Pelagic_Split_3000m_TaxonID2_global.jpeg",
+       plot=last_plot(),
+       device = "jpeg",
+       width = 16,
+       height = 9,
+       path = top1_clusters_folder,
+       dpi=600)
+```
+
+##### 5000 m
+
+```{r}
+dmean <-mean(subset_5000m$newDepth)
+dstdev <-sd(subset_5000m$newDepth)
+dnorm <-((subset_5000m$newDepth)-dmean)/dstdev
+dmin <-min(subset_5000m$newDepth)
+dmax <-max(subset_5000m$newDepth)
+dcor <-((dnorm-dmin)/(dmax-dmin))
+
+dDF <- data.frame(dcor)
+names(dDF)[1] <- "depth"
+
+clara <- pamk(dDF,krange=10,criterion="asw", usepam=FALSE, 
+                  scaling=FALSE, diss=inherits(dDF, "Euclidean"),
+                  critout=TRUE)
+
+clara_df <- data.frame(subset_5000m$newDepth, clara$pamobject$clustering)%>%
+  dplyr::rename("newDepth" = "subset_5000m.newDepth","cluster" = "clara.pamobject.clustering")
+
+clara_df$cluster<-as.character(clara_df$cluster)
+
+clara_max_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==max(newDepth))%>%
+  unique()%>%
+  dplyr::rename("max_depth" = "newDepth")
+
+clara_min_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==min(newDepth))%>%
+  unique()%>%
+  dplyr::rename("min_depth" = "newDepth")
+
+clara_summary<-left_join(clara_min_summ, clara_max_summ, by = join_by(cluster))%>%
+  arrange(min_depth)
+
+clara_summary
+
+write.csv(clara_summary, paste0(top1_clusters_folder, "clara_top2_cluster_combination_5000.csv"), row.names = F)
+
+```
+
+```{r}
+clara_df<-clara_df%>%
+  mutate(Dataset=case_when(
+    cluster=="1" ~ "Benthic", # CHANGE NUMBERS 
+    cluster!="1" ~ "Pelagic"))
+
+ggplot(clara_df, aes(x = sample(1:nrow(clara_df)), y = newDepth, group=Dataset)) +
+  geom_point(aes(color=Dataset)) +
+  scale_colour_Bede("SAS")+
+  theme_bw()+
+  scale_y_reverse() +
+  xlab("Index") +
+  ylab("OBIS Record Depth") +
+  labs(title = "Clustered OBIS record depths for the 5000 m subset")+
+  theme(plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", size = 16),
+        axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18))
+
+ggsave("Benthic_Pelagic_Split_5000m_TaxonID2_global.jpeg",
+       plot=last_plot(),
+       device = "jpeg",
+       width = 16,
+       height = 9,
+       path = top1_clusters_folder,
+       dpi=600)
+```
+
+##### 7000 m
+
+```{r}
+dmean <-mean(subset_7000m$newDepth)
+dstdev <-sd(subset_7000m$newDepth)
+dnorm <-((subset_7000m$newDepth)-dmean)/dstdev
+dmin <-min(subset_7000m$newDepth)
+dmax <-max(subset_7000m$newDepth)
+dcor <-((dnorm-dmin)/(dmax-dmin))
+
+dDF <- data.frame(dcor)
+names(dDF)[1] <- "depth"
+
+clara <- pamk(dDF,krange=3,criterion="asw", usepam=FALSE, 
+                  scaling=FALSE, diss=inherits(dDF, "Euclidean"),
+                  critout=TRUE)
+
+clara_df <- data.frame(subset_7000m$newDepth, clara$pamobject$clustering)%>%
+  dplyr::rename("newDepth" = "subset_7000m.newDepth","cluster" = "clara.pamobject.clustering")
+
+clara_df$cluster<-as.character(clara_df$cluster)
+
+clara_max_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==max(newDepth))%>%
+  unique()%>%
+  dplyr::rename("max_depth" = "newDepth")
+
+clara_min_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==min(newDepth))%>%
+  unique()%>%
+  dplyr::rename("min_depth" = "newDepth")
+
+clara_summary<-left_join(clara_min_summ, clara_max_summ, by = join_by(cluster))%>%
+  arrange(min_depth)
+
+clara_summary
+
+write.csv(clara_summary, paste0(top1_clusters_folder, "clara_top2_cluster_combination_7000.csv"), row.names = F)
+
+```
+
+```{r}
+clara_df<-clara_df%>%
+  mutate(Dataset=case_when(
+    cluster=="2" ~ "Benthic", # CHANGE NUMBERS 
+    cluster!="2" ~ "Pelagic"))
+
+ggplot(clara_df, aes(x = sample(1:nrow(clara_df)), y = newDepth, group=Dataset)) +
+  geom_point(aes(color=Dataset)) +
+  scale_colour_Bede("SAS")+
+  theme_bw()+
+  scale_y_reverse() +
+  xlab("Index") +
+  ylab("OBIS Record Depth") +
+  labs(title = "Clustered OBIS record depths for the 7000 m subset")+
+  theme(plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", size = 16),
+        axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18))
+
+ggsave("Benthic_Pelagic_Split_7000m_TaxonID2_global.jpeg",
+       plot=last_plot(),
+       device = "jpeg",
+       width = 16,
+       height = 9,
+       path = top1_clusters_folder,
+       dpi=600)
+```
+
+##### 10000 m
+
+```{r}
+dmean <-mean(subset_10000m$newDepth)
+dstdev <-sd(subset_10000m$newDepth)
+dnorm <-((subset_10000m$newDepth)-dmean)/dstdev
+dmin <-min(subset_10000m$newDepth)
+dmax <-max(subset_10000m$newDepth)
+dcor <-((dnorm-dmin)/(dmax-dmin))
+
+dDF <- data.frame(dcor)
+names(dDF)[1] <- "depth"
+
+clara <- pamk(dDF,krange=7,criterion="asw", usepam=FALSE, 
+                  scaling=FALSE, diss=inherits(dDF, "Euclidean"),
+                  critout=TRUE)
+
+clara_df <- data.frame(subset_10000m$newDepth, clara$pamobject$clustering)%>%
+  dplyr::rename("newDepth" = "subset_10000m.newDepth","cluster" = "clara.pamobject.clustering")
+
+clara_df$cluster<-as.character(clara_df$cluster)
+
+clara_max_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==max(newDepth))%>%
+  unique()%>%
+  dplyr::rename("max_depth" = "newDepth")
+
+clara_min_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==min(newDepth))%>%
+  unique()%>%
+  dplyr::rename("min_depth" = "newDepth")
+
+clara_summary<-left_join(clara_min_summ, clara_max_summ, by = join_by(cluster))%>%
+  arrange(min_depth)
+
+clara_summary
+
+write.csv(clara_summary, paste0(top1_clusters_folder, "clara_top2_cluster_combination_10000.csv"), row.names = F)
+
+```
+
+```{r}
+clara_df<-clara_df%>%
+  mutate(Dataset=case_when(
+    cluster=="6" ~ "Benthic", # CHANGE NUMBERS 
+    cluster!="6" ~ "Pelagic"))
+
+ggplot(clara_df, aes(x = sample(1:nrow(clara_df)), y = newDepth, group=Dataset)) +
+  geom_point(aes(color=Dataset)) +
+  scale_colour_Bede("SAS")+
+  theme_bw()+
+  scale_y_reverse() +
+  xlab("Index") +
+  ylab("OBIS Record Depth") +
+  labs(title = "Clustered OBIS record depths for the 10000 m subset")+
+  theme(plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", size = 16),
+        axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18))
+
+ggsave("Benthic_Pelagic_Split_10000m_TaxonID2_global.jpeg",
+       plot=last_plot(),
+       device = "jpeg",
+       width = 16,
+       height = 9,
+       path = top1_clusters_folder,
+       dpi=600)
+```
+
+#### 3rd ranking
+
+The above table contains the top three cluster combinations for each subset. Let's start by using the top scoring combination for each subset.
+
+```{r}
+top3_clusters<-top3_clusters%>%
+  filter(ranking==3)
+
+top3_clusters
+```
+
+##### 30 m
+
+```{r}
+dmean <-mean(subset_30m$newDepth)
+dstdev <-sd(subset_30m$newDepth)
+dnorm <-((subset_30m$newDepth)-dmean)/dstdev
+dmin <-min(subset_30m$newDepth)
+dmax <-max(subset_30m$newDepth)
+dcor <-((dnorm-dmin)/(dmax-dmin))
+
+dDF <- data.frame(dcor)
+names(dDF)[1] <- "depth"
+
+clara <- pamk(dDF,krange=7,criterion="asw", usepam=FALSE, # CHANGE THE NUMBER
+                  scaling=FALSE, diss=inherits(dDF, "Euclidean"),
+                  critout=TRUE)
+
+clara_df <- data.frame(subset_30m$newDepth, clara$pamobject$clustering)%>%
+  dplyr::rename("newDepth" = "subset_30m.newDepth","cluster" = "clara.pamobject.clustering")
+
+clara_df$cluster<-as.character(clara_df$cluster)
+
+clara_max_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==max(newDepth))%>%
+  unique()%>%
+  dplyr::rename("max_depth" = "newDepth")
+
+clara_min_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==min(newDepth))%>%
+  unique()%>%
+  dplyr::rename("min_depth" = "newDepth")
+
+clara_summary<-left_join(clara_min_summ, clara_max_summ, by = join_by(cluster))%>%
+  arrange(min_depth)
+
+clara_summary
+
+write.csv(clara_summary, paste0(top1_clusters_folder, "clara_top3_cluster_combination_30.csv"), row.names = F)
+
+```
+
+```{r}
+clara_df<-clara_df%>%
+  mutate(Dataset=case_when(
+    cluster=="2" ~ "Benthic", # CHANGE NUMBERS 
+    cluster!="2" ~ "Pelagic"))
+
+ggplot(clara_df, aes(x = sample(1:nrow(clara_df)), y = newDepth, group=Dataset)) +
+  geom_point(aes(color=Dataset)) +
+  scale_colour_Bede("SAS")+
+  theme_bw()+
+  scale_y_reverse() +
+  xlab("Index") +
+  ylab("OBIS Record Depth") +
+  labs(title = "Clustered OBIS record depths for the 30 m subset")+
+  theme(plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", size = 16),
+        axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18))
+
+ggsave("Benthic_Pelagic_Split_30m_TaxonID2_global.jpeg",
+       plot=last_plot(),
+       device = "jpeg",
+       width = 16,
+       height = 9,
+       path = top1_clusters_folder,
+       dpi=600)
+```
+
+##### 40 m
+
+```{r}
+dmean <-mean(subset_40m$newDepth)
+dstdev <-sd(subset_40m$newDepth)
+dnorm <-((subset_40m$newDepth)-dmean)/dstdev
+dmin <-min(subset_40m$newDepth)
+dmax <-max(subset_40m$newDepth)
+dcor <-((dnorm-dmin)/(dmax-dmin))
+
+dDF <- data.frame(dcor)
+names(dDF)[1] <- "depth"
+
+clara <- pamk(dDF,krange=9,criterion="asw", usepam=FALSE, 
+                  scaling=FALSE, diss=inherits(dDF, "Euclidean"),
+                  critout=TRUE)
+
+clara_df <- data.frame(subset_40m$newDepth, clara$pamobject$clustering)%>%
+  dplyr::rename("newDepth" = "subset_40m.newDepth","cluster" = "clara.pamobject.clustering")
+
+clara_df$cluster<-as.character(clara_df$cluster)
+
+clara_max_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==max(newDepth))%>%
+  unique()%>%
+  dplyr::rename("max_depth" = "newDepth")
+
+clara_min_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==min(newDepth))%>%
+  unique()%>%
+  dplyr::rename("min_depth" = "newDepth")
+
+clara_summary<-left_join(clara_min_summ, clara_max_summ, by = join_by(cluster))%>%
+  arrange(min_depth)
+
+clara_summary
+
+write.csv(clara_summary, paste0(top1_clusters_folder, "clara_top3_cluster_combination_40.csv"), row.names = F)
+
+```
+
+```{r}
+clara_df<-clara_df%>%
+  mutate(Dataset=case_when(
+    cluster=="9" ~ "Benthic", # CHANGE NUMBERS 
+    cluster!="9" ~ "Pelagic"))
+
+ggplot(clara_df, aes(x = sample(1:nrow(clara_df)), y = newDepth, group=Dataset)) +
+  geom_point(aes(color=Dataset)) +
+  scale_colour_Bede("SAS")+
+  theme_bw()+
+  scale_y_reverse() +
+  xlab("Index") +
+  ylab("OBIS Record Depth") +
+  labs(title = "Clustered OBIS record depths for the 40 m subset")+
+  theme(plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", size = 16),
+        axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18))
+
+ggsave("Benthic_Pelagic_Split_40m_TaxonID2_global.jpeg",
+       plot=last_plot(),
+       device = "jpeg",
+       width = 16,
+       height = 9,
+       path = top1_clusters_folder,
+       dpi=600)
+```
+
+##### 50 m
+
+```{r}
+dmean <-mean(subset_50m$newDepth)
+dstdev <-sd(subset_50m$newDepth)
+dnorm <-((subset_50m$newDepth)-dmean)/dstdev
+dmin <-min(subset_50m$newDepth)
+dmax <-max(subset_50m$newDepth)
+dcor <-((dnorm-dmin)/(dmax-dmin))
+
+dDF <- data.frame(dcor)
+names(dDF)[1] <- "depth"
+
+clara <- pamk(dDF,krange=6,criterion="asw", usepam=FALSE, 
+                  scaling=FALSE, diss=inherits(dDF, "Euclidean"),
+                  critout=TRUE)
+
+clara_df <- data.frame(subset_50m$newDepth, clara$pamobject$clustering)%>%
+  dplyr::rename("newDepth" = "subset_50m.newDepth","cluster" = "clara.pamobject.clustering")
+
+clara_df$cluster<-as.character(clara_df$cluster)
+
+clara_max_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==max(newDepth))%>%
+  unique()%>%
+  dplyr::rename("max_depth" = "newDepth")
+
+clara_min_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==min(newDepth))%>%
+  unique()%>%
+  dplyr::rename("min_depth" = "newDepth")
+
+clara_summary<-left_join(clara_min_summ, clara_max_summ, by = join_by(cluster))%>%
+  arrange(min_depth)
+
+clara_summary
+
+write.csv(clara_summary, paste0(top1_clusters_folder, "clara_top3_cluster_combination_50.csv"), row.names = F)
+
+```
+
+```{r}
+clara_df<-clara_df%>%
+  mutate(Dataset=case_when(
+    cluster=="1" ~ "Benthic", # CHANGE NUMBERS 
+    cluster!="1" ~ "Pelagic"))
+
+ggplot(clara_df, aes(x = sample(1:nrow(clara_df)), y = newDepth, group=Dataset)) +
+  geom_point(aes(color=Dataset)) +
+  scale_colour_Bede("SAS")+
+  theme_bw()+
+  scale_y_reverse() +
+  xlab("Index") +
+  ylab("OBIS Record Depth") +
+  labs(title = "Clustered OBIS record depths for the 50 m subset")+
+  theme(plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", size = 16),
+        axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18))
+
+ggsave("Benthic_Pelagic_Split_50m_TaxonID2_global.jpeg",
+       plot=last_plot(),
+       device = "jpeg",
+       width = 16,
+       height = 9,
+       path = top1_clusters_folder,
+       dpi=600)
+```
+
+##### 100 m
+
+```{r}
+dmean <-mean(subset_100m$newDepth)
+dstdev <-sd(subset_100m$newDepth)
+dnorm <-((subset_100m$newDepth)-dmean)/dstdev
+dmin <-min(subset_100m$newDepth)
+dmax <-max(subset_100m$newDepth)
+dcor <-((dnorm-dmin)/(dmax-dmin))
+
+dDF <- data.frame(dcor)
+names(dDF)[1] <- "depth"
+
+clara <- pamk(dDF,krange=4,criterion="asw", usepam=FALSE, 
+                  scaling=FALSE, diss=inherits(dDF, "Euclidean"),
+                  critout=TRUE)
+
+clara_df <- data.frame(subset_100m$newDepth, clara$pamobject$clustering)%>%
+  dplyr::rename("newDepth" = "subset_100m.newDepth","cluster" = "clara.pamobject.clustering")
+
+clara_df$cluster<-as.character(clara_df$cluster)
+
+clara_max_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==max(newDepth))%>%
+  unique()%>%
+  dplyr::rename("max_depth" = "newDepth")
+
+clara_min_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==min(newDepth))%>%
+  unique()%>%
+  dplyr::rename("min_depth" = "newDepth")
+
+clara_summary<-left_join(clara_min_summ, clara_max_summ, by = join_by(cluster))%>%
+  arrange(min_depth)
+
+clara_summary
+
+write.csv(clara_summary, paste0(top1_clusters_folder, "clara_top3_cluster_combination_100.csv"), row.names = F)
+
+```
+
+```{r}
+clara_df<-clara_df%>%
+  mutate(Dataset=case_when(
+    cluster=="2" ~ "Benthic", # CHANGE NUMBERS 
+    cluster!="2" ~ "Pelagic"))
+
+ggplot(clara_df, aes(x = sample(1:nrow(clara_df)), y = newDepth, group=Dataset)) +
+  geom_point(aes(color=Dataset)) +
+  scale_colour_Bede("SAS")+
+  theme_bw()+
+  scale_y_reverse() +
+  xlab("Index") +
+  ylab("OBIS Record Depth") +
+  labs(title = "Clustered OBIS record depths for the 100 m subset")+
+  theme(plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", size = 16),
+        axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18))
+
+ggsave("Benthic_Pelagic_Split_100m_TaxonID2_global.jpeg",
+       plot=last_plot(),
+       device = "jpeg",
+       width = 16,
+       height = 9,
+       path = top1_clusters_folder,
+       dpi=600)
+```
+
+##### 150 m
+
+```{r}
+dmean <-mean(subset_150m$newDepth)
+dstdev <-sd(subset_150m$newDepth)
+dnorm <-((subset_150m$newDepth)-dmean)/dstdev
+dmin <-min(subset_150m$newDepth)
+dmax <-max(subset_150m$newDepth)
+dcor <-((dnorm-dmin)/(dmax-dmin))
+
+dDF <- data.frame(dcor)
+names(dDF)[1] <- "depth"
+
+clara <- pamk(dDF,krange=8,criterion="asw", usepam=FALSE, 
+                  scaling=FALSE, diss=inherits(dDF, "Euclidean"),
+                  critout=TRUE)
+
+clara_df <- data.frame(subset_150m$newDepth, clara$pamobject$clustering)%>%
+  dplyr::rename("newDepth" = "subset_150m.newDepth","cluster" = "clara.pamobject.clustering")
+
+clara_df$cluster<-as.character(clara_df$cluster)
+
+clara_max_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==max(newDepth))%>%
+  unique()%>%
+  dplyr::rename("max_depth" = "newDepth")
+
+clara_min_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==min(newDepth))%>%
+  unique()%>%
+  dplyr::rename("min_depth" = "newDepth")
+
+clara_summary<-left_join(clara_min_summ, clara_max_summ, by = join_by(cluster))%>%
+  arrange(min_depth)
+
+clara_summary
+
+write.csv(clara_summary, paste0(top1_clusters_folder, "clara_top3_cluster_combination_150.csv"), row.names = F)
+
+```
+
+```{r}
+clara_df<-clara_df%>%
+  mutate(Dataset=case_when(
+    cluster=="3" ~ "Benthic", # CHANGE NUMBERS 
+    cluster!="3" ~ "Pelagic"))
+
+ggplot(clara_df, aes(x = sample(1:nrow(clara_df)), y = newDepth, group=Dataset)) +
+  geom_point(aes(color=Dataset)) +
+  scale_colour_Bede("SAS")+
+  theme_bw()+
+  scale_y_reverse() +
+  xlab("Index") +
+  ylab("OBIS Record Depth") +
+  labs(title = "Clustered OBIS record depths for the 150 m subset")+
+  theme(plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", size = 16),
+        axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18))
+
+ggsave("Benthic_Pelagic_Split_150m_TaxonID2_global.jpeg",
+       plot=last_plot(),
+       device = "jpeg",
+       width = 16,
+       height = 9,
+       path = top1_clusters_folder,
+       dpi=600)
+```
+
+##### 200 m
+
+```{r}
+dmean <-mean(subset_200m$newDepth)
+dstdev <-sd(subset_200m$newDepth)
+dnorm <-((subset_200m$newDepth)-dmean)/dstdev
+dmin <-min(subset_200m$newDepth)
+dmax <-max(subset_200m$newDepth)
+dcor <-((dnorm-dmin)/(dmax-dmin))
+
+dDF <- data.frame(dcor)
+names(dDF)[1] <- "depth"
+
+clara <- pamk(dDF,krange=5,criterion="asw", usepam=FALSE, 
+                  scaling=FALSE, diss=inherits(dDF, "Euclidean"),
+                  critout=TRUE)
+
+clara_df <- data.frame(subset_200m$newDepth, clara$pamobject$clustering)%>%
+  dplyr::rename("newDepth" = "subset_200m.newDepth","cluster" = "clara.pamobject.clustering")
+
+clara_df$cluster<-as.character(clara_df$cluster)
+
+clara_max_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==max(newDepth))%>%
+  unique()%>%
+  dplyr::rename("max_depth" = "newDepth")
+
+clara_min_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==min(newDepth))%>%
+  unique()%>%
+  dplyr::rename("min_depth" = "newDepth")
+
+clara_summary<-left_join(clara_min_summ, clara_max_summ, by = join_by(cluster))%>%
+  arrange(min_depth)
+
+clara_summary
+
+write.csv(clara_summary, paste0(top1_clusters_folder, "clara_top3_cluster_combination_200.csv"), row.names = F)
+
+```
+
+```{r}
+clara_df<-clara_df%>%
+  mutate(Dataset=case_when(
+    cluster=="1" ~ "Benthic", # CHANGE NUMBERS 
+    cluster!="1" ~ "Pelagic"))
+
+ggplot(clara_df, aes(x = sample(1:nrow(clara_df)), y = newDepth, group=Dataset)) +
+  geom_point(aes(color=Dataset)) +
+  scale_colour_Bede("SAS")+
+  theme_bw()+
+  scale_y_reverse() +
+  xlab("Index") +
+  ylab("OBIS Record Depth") +
+  labs(title = "Clustered OBIS record depths for the 200 m subset")+
+  theme(plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", size = 16),
+        axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18))
+
+ggsave("Benthic_Pelagic_Split_200m_TaxonID2_global.jpeg",
+       plot=last_plot(),
+       device = "jpeg",
+       width = 16,
+       height = 9,
+       path = top1_clusters_folder,
+       dpi=600)
+```
+
+##### 400 m
+
+```{r}
+dmean <-mean(subset_400m$newDepth)
+dstdev <-sd(subset_400m$newDepth)
+dnorm <-((subset_400m$newDepth)-dmean)/dstdev
+dmin <-min(subset_400m$newDepth)
+dmax <-max(subset_400m$newDepth)
+dcor <-((dnorm-dmin)/(dmax-dmin))
+
+dDF <- data.frame(dcor)
+names(dDF)[1] <- "depth"
+
+clara <- pamk(dDF,krange=4,criterion="asw", usepam=FALSE, 
+                  scaling=FALSE, diss=inherits(dDF, "Euclidean"),
+                  critout=TRUE)
+
+clara_df <- data.frame(subset_400m$newDepth, clara$pamobject$clustering)%>%
+  dplyr::rename("newDepth" = "subset_400m.newDepth","cluster" = "clara.pamobject.clustering")
+
+clara_df$cluster<-as.character(clara_df$cluster)
+
+clara_max_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==max(newDepth))%>%
+  unique()%>%
+  dplyr::rename("max_depth" = "newDepth")
+
+clara_min_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==min(newDepth))%>%
+  unique()%>%
+  dplyr::rename("min_depth" = "newDepth")
+
+clara_summary<-left_join(clara_min_summ, clara_max_summ, by = join_by(cluster))%>%
+  arrange(min_depth)
+
+clara_summary
+
+write.csv(clara_summary, paste0(top1_clusters_folder, "clara_top3_cluster_combination_400.csv"), row.names = F)
+
+```
+
+```{r}
+clara_df<-clara_df%>%
+  mutate(Dataset=case_when(
+    cluster=="4" ~ "Benthic", # CHANGE NUMBERS 
+    cluster!="4" ~ "Pelagic"))
+
+ggplot(clara_df, aes(x = sample(1:nrow(clara_df)), y = newDepth, group=Dataset)) +
+  geom_point(aes(color=Dataset)) +
+  scale_colour_Bede("SAS")+
+  theme_bw()+
+  scale_y_reverse() +
+  xlab("Index") +
+  ylab("OBIS Record Depth") +
+  labs(title = "Clustered OBIS record depths for the 400 m subset")+
+  theme(plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", size = 16),
+        axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18))
+
+ggsave("Benthic_Pelagic_Split_400m_TaxonID2_global.jpeg",
+       plot=last_plot(),
+       device = "jpeg",
+       width = 16,
+       height = 9,
+       path = top1_clusters_folder,
+       dpi=600)
+```
+
+##### 600 m
+
+```{r}
+dmean <-mean(subset_600m$newDepth)
+dstdev <-sd(subset_600m$newDepth)
+dnorm <-((subset_600m$newDepth)-dmean)/dstdev
+dmin <-min(subset_600m$newDepth)
+dmax <-max(subset_600m$newDepth)
+dcor <-((dnorm-dmin)/(dmax-dmin))
+
+dDF <- data.frame(dcor)
+names(dDF)[1] <- "depth"
+
+clara <- pamk(dDF,krange=6,criterion="asw", usepam=FALSE, 
+                  scaling=FALSE, diss=inherits(dDF, "Euclidean"),
+                  critout=TRUE)
+
+clara_df <- data.frame(subset_600m$newDepth, clara$pamobject$clustering)%>%
+  dplyr::rename("newDepth" = "subset_600m.newDepth","cluster" = "clara.pamobject.clustering")
+
+clara_df$cluster<-as.character(clara_df$cluster)
+
+clara_max_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==max(newDepth))%>%
+  unique()%>%
+  dplyr::rename("max_depth" = "newDepth")
+
+clara_min_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==min(newDepth))%>%
+  unique()%>%
+  dplyr::rename("min_depth" = "newDepth")
+
+clara_summary<-left_join(clara_min_summ, clara_max_summ, by = join_by(cluster))%>%
+  arrange(min_depth)
+
+clara_summary
+
+write.csv(clara_summary, paste0(top1_clusters_folder, "clara_top3_cluster_combination_600.csv"), row.names = F)
+
+```
+
+```{r}
+clara_df<-clara_df%>%
+  mutate(Dataset=case_when(
+    cluster=="1" ~ "Benthic", # CHANGE NUMBERS 
+    cluster!="1" ~ "Pelagic"))
+
+ggplot(clara_df, aes(x = sample(1:nrow(clara_df)), y = newDepth, group=Dataset)) +
+  geom_point(aes(color=Dataset)) +
+  scale_colour_Bede("SAS")+
+  theme_bw()+
+  scale_y_reverse() +
+  xlab("Index") +
+  ylab("OBIS Record Depth") +
+  labs(title = "Clustered OBIS record depths for the 600 m subset")+
+  theme(plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", size = 16),
+        axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18))
+
+ggsave("Benthic_Pelagic_Split_600m_TaxonID2_global.jpeg",
+       plot=last_plot(),
+       device = "jpeg",
+       width = 16,
+       height = 9,
+       path = top1_clusters_folder,
+       dpi=600)
+```
+
+##### 800 m
+
+```{r}
+dmean <-mean(subset_800m$newDepth)
+dstdev <-sd(subset_800m$newDepth)
+dnorm <-((subset_800m$newDepth)-dmean)/dstdev
+dmin <-min(subset_800m$newDepth)
+dmax <-max(subset_800m$newDepth)
+dcor <-((dnorm-dmin)/(dmax-dmin))
+
+dDF <- data.frame(dcor)
+names(dDF)[1] <- "depth"
+
+clara <- pamk(dDF,krange=9,criterion="asw", usepam=FALSE, 
+                  scaling=FALSE, diss=inherits(dDF, "Euclidean"),
+                  critout=TRUE)
+
+clara_df <- data.frame(subset_800m$newDepth, clara$pamobject$clustering)%>%
+  dplyr::rename("newDepth" = "subset_800m.newDepth","cluster" = "clara.pamobject.clustering")
+
+clara_df$cluster<-as.character(clara_df$cluster)
+
+clara_max_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==max(newDepth))%>%
+  unique()%>%
+  dplyr::rename("max_depth" = "newDepth")
+
+clara_min_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==min(newDepth))%>%
+  unique()%>%
+  dplyr::rename("min_depth" = "newDepth")
+
+clara_summary<-left_join(clara_min_summ, clara_max_summ, by = join_by(cluster))%>%
+  arrange(min_depth)
+
+clara_summary
+
+write.csv(clara_summary, paste0(top1_clusters_folder, "clara_top3_cluster_combination_800.csv"), row.names = F)
+
+```
+
+```{r}
+clara_df<-clara_df%>%
+  mutate(Dataset=case_when(
+    cluster=="1" ~ "Benthic", # CHANGE NUMBERS 
+    cluster!="1" ~ "Pelagic"))
+
+ggplot(clara_df, aes(x = sample(1:nrow(clara_df)), y = newDepth, group=Dataset)) +
+  geom_point(aes(color=Dataset)) +
+  scale_colour_Bede("SAS")+
+  theme_bw()+
+  scale_y_reverse() +
+  xlab("Index") +
+  ylab("OBIS Record Depth") +
+  labs(title = "Clustered OBIS record depths for the 800 m subset")+
+  theme(plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", size = 16),
+        axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18))
+
+ggsave("Benthic_Pelagic_Split_800m_TaxonID2_global.jpeg",
+       plot=last_plot(),
+       device = "jpeg",
+       width = 16,
+       height = 9,
+       path = top1_clusters_folder,
+       dpi=600)
+```
+
+##### 1000 m
+
+```{r}
+dmean <-mean(subset_1000m$newDepth)
+dstdev <-sd(subset_1000m$newDepth)
+dnorm <-((subset_1000m$newDepth)-dmean)/dstdev
+dmin <-min(subset_1000m$newDepth)
+dmax <-max(subset_1000m$newDepth)
+dcor <-((dnorm-dmin)/(dmax-dmin))
+
+dDF <- data.frame(dcor)
+names(dDF)[1] <- "depth"
+
+clara <- pamk(dDF,krange=4,criterion="asw", usepam=FALSE, 
+                  scaling=FALSE, diss=inherits(dDF, "Euclidean"),
+                  critout=TRUE)
+
+clara_df <- data.frame(subset_1000m$newDepth, clara$pamobject$clustering)%>%
+  dplyr::rename("newDepth" = "subset_1000m.newDepth","cluster" = "clara.pamobject.clustering")
+
+clara_df$cluster<-as.character(clara_df$cluster)
+
+clara_max_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==max(newDepth))%>%
+  unique()%>%
+  dplyr::rename("max_depth" = "newDepth")
+
+clara_min_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==min(newDepth))%>%
+  unique()%>%
+  dplyr::rename("min_depth" = "newDepth")
+
+clara_summary<-left_join(clara_min_summ, clara_max_summ, by = join_by(cluster))%>%
+  arrange(min_depth)
+
+clara_summary
+
+write.csv(clara_summary, paste0(top1_clusters_folder, "clara_top3_cluster_combination_1000.csv"), row.names = F)
+
+```
+
+```{r}
+clara_df<-clara_df%>%
+  mutate(Dataset=case_when(
+    cluster=="1" ~ "Benthic", # CHANGE NUMBERS 
+    cluster!="1" ~ "Pelagic"))
+
+ggplot(clara_df, aes(x = sample(1:nrow(clara_df)), y = newDepth, group=Dataset)) +
+  geom_point(aes(color=Dataset)) +
+  scale_colour_Bede("SAS")+
+  theme_bw()+
+  scale_y_reverse() +
+  xlab("Index") +
+  ylab("OBIS Record Depth") +
+  labs(title = "Clustered OBIS record depths for the 1000 m subset")+
+  theme(plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", size = 16),
+        axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18))
+
+ggsave("Benthic_Pelagic_Split_1000m_TaxonID2_global.jpeg",
+       plot=last_plot(),
+       device = "jpeg",
+       width = 16,
+       height = 9,
+       path = top1_clusters_folder,
+       dpi=600)
+```
+
+##### 3000 m
+
+```{r}
+dmean <-mean(subset_3000m$newDepth)
+dstdev <-sd(subset_3000m$newDepth)
+dnorm <-((subset_3000m$newDepth)-dmean)/dstdev
+dmin <-min(subset_3000m$newDepth)
+dmax <-max(subset_3000m$newDepth)
+dcor <-((dnorm-dmin)/(dmax-dmin))
+
+dDF <- data.frame(dcor)
+names(dDF)[1] <- "depth"
+
+clara <- pamk(dDF,krange=4,criterion="asw", usepam=FALSE,
+                  scaling=FALSE, diss=inherits(dDF, "Euclidean"),
+                  critout=TRUE)
+
+clara_df <- data.frame(subset_3000m$newDepth, clara$pamobject$clustering)%>%
+  dplyr::rename("newDepth" = "subset_3000m.newDepth","cluster" = "clara.pamobject.clustering")
+
+clara_df$cluster<-as.character(clara_df$cluster)
+
+clara_max_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==max(newDepth))%>%
+  unique()%>%
+  dplyr::rename("max_depth" = "newDepth")
+
+clara_min_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==min(newDepth))%>%
+  unique()%>%
+  dplyr::rename("min_depth" = "newDepth")
+
+clara_summary<-left_join(clara_min_summ, clara_max_summ, by = join_by(cluster))%>%
+  arrange(min_depth)
+
+clara_summary
+
+write.csv(clara_summary, paste0(top1_clusters_folder, "clara_top3_cluster_combination_3000.csv"), row.names = F)
+
+```
+
+```{r}
+clara_df<-clara_df%>%
+  mutate(Dataset=case_when(
+    cluster=="2" ~ "Benthic", # CHANGE NUMBERS 
+    cluster!="2" ~ "Pelagic"))
+
+ggplot(clara_df, aes(x = sample(1:nrow(clara_df)), y = newDepth, group=Dataset)) +
+  geom_point(aes(color=Dataset)) +
+  scale_colour_Bede("SAS")+
+  theme_bw()+
+  scale_y_reverse() +
+  xlab("Index") +
+  ylab("OBIS Record Depth") +
+  labs(title = "Clustered OBIS record depths for the 3000 m subset")+
+  theme(plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", size = 16),
+        axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18))
+
+ggsave("Benthic_Pelagic_Split_3000m_TaxonID2_global.jpeg",
+       plot=last_plot(),
+       device = "jpeg",
+       width = 16,
+       height = 9,
+       path = top1_clusters_folder,
+       dpi=600)
+```
+
+##### 5000 m
+
+```{r}
+dmean <-mean(subset_5000m$newDepth)
+dstdev <-sd(subset_5000m$newDepth)
+dnorm <-((subset_5000m$newDepth)-dmean)/dstdev
+dmin <-min(subset_5000m$newDepth)
+dmax <-max(subset_5000m$newDepth)
+dcor <-((dnorm-dmin)/(dmax-dmin))
+
+dDF <- data.frame(dcor)
+names(dDF)[1] <- "depth"
+
+clara <- pamk(dDF,krange=6,criterion="asw", usepam=FALSE, 
+                  scaling=FALSE, diss=inherits(dDF, "Euclidean"),
+                  critout=TRUE)
+
+clara_df <- data.frame(subset_5000m$newDepth, clara$pamobject$clustering)%>%
+  dplyr::rename("newDepth" = "subset_5000m.newDepth","cluster" = "clara.pamobject.clustering")
+
+clara_df$cluster<-as.character(clara_df$cluster)
+
+clara_max_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==max(newDepth))%>%
+  unique()%>%
+  dplyr::rename("max_depth" = "newDepth")
+
+clara_min_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==min(newDepth))%>%
+  unique()%>%
+  dplyr::rename("min_depth" = "newDepth")
+
+clara_summary<-left_join(clara_min_summ, clara_max_summ, by = join_by(cluster))%>%
+  arrange(min_depth)
+
+clara_summary
+
+write.csv(clara_summary, paste0(top1_clusters_folder, "clara_top3_cluster_combination_5000.csv"), row.names = F)
+
+```
+
+```{r}
+clara_df<-clara_df%>%
+  mutate(Dataset=case_when(
+    cluster=="1" ~ "Benthic", # CHANGE NUMBERS 
+    cluster!="1" ~ "Pelagic"))
+
+ggplot(clara_df, aes(x = sample(1:nrow(clara_df)), y = newDepth, group=Dataset)) +
+  geom_point(aes(color=Dataset)) +
+  scale_colour_Bede("SAS")+
+  theme_bw()+
+  scale_y_reverse() +
+  xlab("Index") +
+  ylab("OBIS Record Depth") +
+  labs(title = "Clustered OBIS record depths for the 5000 m subset")+
+  theme(plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", size = 16),
+        axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18))
+
+ggsave("Benthic_Pelagic_Split_5000m_TaxonID2_global.jpeg",
+       plot=last_plot(),
+       device = "jpeg",
+       width = 16,
+       height = 9,
+       path = top1_clusters_folder,
+       dpi=600)
+```
+
+##### 7000 m
+
+```{r}
+dmean <-mean(subset_7000m$newDepth)
+dstdev <-sd(subset_7000m$newDepth)
+dnorm <-((subset_7000m$newDepth)-dmean)/dstdev
+dmin <-min(subset_7000m$newDepth)
+dmax <-max(subset_7000m$newDepth)
+dcor <-((dnorm-dmin)/(dmax-dmin))
+
+dDF <- data.frame(dcor)
+names(dDF)[1] <- "depth"
+
+clara <- pamk(dDF,krange=4,criterion="asw", usepam=FALSE, 
+                  scaling=FALSE, diss=inherits(dDF, "Euclidean"),
+                  critout=TRUE)
+
+clara_df <- data.frame(subset_7000m$newDepth, clara$pamobject$clustering)%>%
+  dplyr::rename("newDepth" = "subset_7000m.newDepth","cluster" = "clara.pamobject.clustering")
+
+clara_df$cluster<-as.character(clara_df$cluster)
+
+clara_max_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==max(newDepth))%>%
+  unique()%>%
+  dplyr::rename("max_depth" = "newDepth")
+
+clara_min_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==min(newDepth))%>%
+  unique()%>%
+  dplyr::rename("min_depth" = "newDepth")
+
+clara_summary<-left_join(clara_min_summ, clara_max_summ, by = join_by(cluster))%>%
+  arrange(min_depth)
+
+clara_summary
+
+write.csv(clara_summary, paste0(top1_clusters_folder, "clara_top3_cluster_combination_7000.csv"), row.names = F)
+
+```
+
+```{r}
+clara_df<-clara_df%>%
+  mutate(Dataset=case_when(
+    cluster=="2" ~ "Benthic", # CHANGE NUMBERS 
+    cluster!="2" ~ "Pelagic"))
+
+ggplot(clara_df, aes(x = sample(1:nrow(clara_df)), y = newDepth, group=Dataset)) +
+  geom_point(aes(color=Dataset)) +
+  scale_colour_Bede("SAS")+
+  theme_bw()+
+  scale_y_reverse() +
+  xlab("Index") +
+  ylab("OBIS Record Depth") +
+  labs(title = "Clustered OBIS record depths for the 7000 m subset")+
+  theme(plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", size = 16),
+        axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18))
+
+ggsave("Benthic_Pelagic_Split_7000m_TaxonID2_global.jpeg",
+       plot=last_plot(),
+       device = "jpeg",
+       width = 16,
+       height = 9,
+       path = top1_clusters_folder,
+       dpi=600)
+```
+
+##### 10000 m
+
+```{r}
+dmean <-mean(subset_10000m$newDepth)
+dstdev <-sd(subset_10000m$newDepth)
+dnorm <-((subset_10000m$newDepth)-dmean)/dstdev
+dmin <-min(subset_10000m$newDepth)
+dmax <-max(subset_10000m$newDepth)
+dcor <-((dnorm-dmin)/(dmax-dmin))
+
+dDF <- data.frame(dcor)
+names(dDF)[1] <- "depth"
+
+clara <- pamk(dDF,krange=6,criterion="asw", usepam=FALSE, 
+                  scaling=FALSE, diss=inherits(dDF, "Euclidean"),
+                  critout=TRUE)
+
+clara_df <- data.frame(subset_10000m$newDepth, clara$pamobject$clustering)%>%
+  dplyr::rename("newDepth" = "subset_10000m.newDepth","cluster" = "clara.pamobject.clustering")
+
+clara_df$cluster<-as.character(clara_df$cluster)
+
+clara_max_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==max(newDepth))%>%
+  unique()%>%
+  dplyr::rename("max_depth" = "newDepth")
+
+clara_min_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==min(newDepth))%>%
+  unique()%>%
+  dplyr::rename("min_depth" = "newDepth")
+
+clara_summary<-left_join(clara_min_summ, clara_max_summ, by = join_by(cluster))%>%
+  arrange(min_depth)
+
+clara_summary
+
+write.csv(clara_summary, paste0(top1_clusters_folder, "clara_top3_cluster_combination_10000.csv"), row.names = F)
+
+```
+
+```{r}
+clara_df<-clara_df%>%
+  mutate(Dataset=case_when(
+    cluster=="5" ~ "Benthic", # CHANGE NUMBERS 
+    cluster!="5" ~ "Pelagic"))
+
+ggplot(clara_df, aes(x = sample(1:nrow(clara_df)), y = newDepth, group=Dataset)) +
+  geom_point(aes(color=Dataset)) +
+  scale_colour_Bede("SAS")+
+  theme_bw()+
+  scale_y_reverse() +
+  xlab("Index") +
+  ylab("OBIS Record Depth") +
+  labs(title = "Clustered OBIS record depths for the 10000 m subset")+
+  theme(plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", size = 16),
+        axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18))
+
+ggsave("Benthic_Pelagic_Split_10000m_TaxonID2_global.jpeg",
+       plot=last_plot(),
+       device = "jpeg",
+       width = 16,
+       height = 9,
+       path = top1_clusters_folder,
+       dpi=600)
+```
+
+#### Selected clusters
+
+##### 30 m
+
+```{r}
+dmean <-mean(subset_30m$newDepth)
+dstdev <-sd(subset_30m$newDepth)
+dnorm <-((subset_30m$newDepth)-dmean)/dstdev
+dmin <-min(subset_30m$newDepth)
+dmax <-max(subset_30m$newDepth)
+dcor <-((dnorm-dmin)/(dmax-dmin))
+
+dDF <- data.frame(dcor)
+names(dDF)[1] <- "depth"
+
+clara <- pamk(dDF,krange=2,criterion="asw", usepam=FALSE, # CHANGE THE NUMBER
+                  scaling=FALSE, diss=inherits(dDF, "Euclidean"),
+                  critout=TRUE)
+
+clara_df <- data.frame(subset_30m$newDepth, clara$pamobject$clustering)%>%
+  dplyr::rename("newDepth" = "subset_30m.newDepth","cluster" = "clara.pamobject.clustering")
+
+clara_df$cluster<-as.character(clara_df$cluster)
+
+clara_max_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==max(newDepth))%>%
+  unique()%>%
+  dplyr::rename("max_depth" = "newDepth")
+
+clara_min_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==min(newDepth))%>%
+  unique()%>%
+  dplyr::rename("min_depth" = "newDepth")
+
+clara_summary<-left_join(clara_min_summ, clara_max_summ, by = join_by(cluster))%>%
+  arrange(min_depth)
+
+clara_summary
+
+# write.csv(clara_summary, paste0(selected_clusters_folder, "clara_selected_cluster_combination_30_2clusters.csv"), row.names = F)
+
+```
+
+```{r}
+clara_df<-clara_df%>%
+  mutate(Dataset=case_when(
+    cluster=="2" ~ "Benthic", # CHANGE NUMBERS 
+    cluster=="2" ~ "Benthic"))
+
+ggplot(clara_df, aes(x = sample(1:nrow(clara_df)), y = newDepth)) +
+  geom_point(aes(color='#dbb13b')) +
+  scale_colour_Bede("SAS")+
+  theme_bw()+
+  scale_y_reverse() +
+  xlab("Index") +
+  ylab("OBIS Record Depth") +
+  labs(title = "Final clustered OBIS record depths for the 30 m subset",
+       subtitle = "n. clusters:2, benthos: 30-33.5 m")+
+  theme(plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", size = 16),
+        axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18))
+
+ggsave("Selected_benthic_Pelagic_Split_30m_TaxonID2_global_2clusters.jpeg",
+       plot=last_plot(),
+       device = "jpeg",
+       width = 16,
+       height = 9,
+       path = selected_clusters_folder,
+       dpi=600)
+```
+
+##### 40 m
+
+```{r}
+dmean <-mean(subset_40m$newDepth)
+dstdev <-sd(subset_40m$newDepth)
+dnorm <-((subset_40m$newDepth)-dmean)/dstdev
+dmin <-min(subset_40m$newDepth)
+dmax <-max(subset_40m$newDepth)
+dcor <-((dnorm-dmin)/(dmax-dmin))
+
+dDF <- data.frame(dcor)
+names(dDF)[1] <- "depth"
+
+clara <- pamk(dDF,krange=3,criterion="asw", usepam=FALSE, 
+                  scaling=FALSE, diss=inherits(dDF, "Euclidean"),
+                  critout=TRUE)
+
+clara_df <- data.frame(subset_40m$newDepth, clara$pamobject$clustering)%>%
+  dplyr::rename("newDepth" = "subset_40m.newDepth","cluster" = "clara.pamobject.clustering")
+
+clara_df$cluster<-as.character(clara_df$cluster)
+
+clara_max_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==max(newDepth))%>%
+  unique()%>%
+  dplyr::rename("max_depth" = "newDepth")
+
+clara_min_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==min(newDepth))%>%
+  unique()%>%
+  dplyr::rename("min_depth" = "newDepth")
+
+clara_summary<-left_join(clara_min_summ, clara_max_summ, by = join_by(cluster))%>%
+  arrange(min_depth)
+
+clara_summary
+
+# write.csv(clara_summary, paste0(selected_clusters_folder, "clara_selected_cluster_combination_40_3clusters.csv"), row.names = F)
+
+```
+
+```{r}
+clara_df<-clara_df%>%
+  mutate(Dataset=case_when(
+    newDepth>=39.6 ~ "Benthic",
+    newDepth<39.6 ~ "Pelagic"))
+
+ggplot(clara_df, aes(x = sample(1:nrow(clara_df)), y = newDepth, group=Dataset)) +
+  geom_point(aes(color=Dataset)) +
+  scale_colour_Bede("SAS")+
+  theme_bw()+
+  scale_y_reverse() +
+  xlab("Index") +
+  ylab("OBIS Record Depth") +
+  labs(title = "Final clustered OBIS record depths for the 40 m subset",
+       subtitle = "n. clusters:2, benthos: 38.6-42.1 m")+
+  theme(plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", size = 16),
+        axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18))
+
+ggsave("Selected_benthic_Pelagic_Split_40m_TaxonID2_global_2clusters.jpeg",
+       plot=last_plot(),
+       device = "jpeg",
+       width = 16,
+       height = 9,
+       path = selected_clusters_folder,
+       dpi=600)
+```
+
+##### 50 m
+
+```{r}
+dmean <-mean(subset_50m$newDepth)
+dstdev <-sd(subset_50m$newDepth)
+dnorm <-((subset_50m$newDepth)-dmean)/dstdev
+dmin <-min(subset_50m$newDepth)
+dmax <-max(subset_50m$newDepth)
+dcor <-((dnorm-dmin)/(dmax-dmin))
+
+dDF <- data.frame(dcor)
+names(dDF)[1] <- "depth"
+
+clara <- pamk(dDF,krange=2,criterion="asw", usepam=FALSE, 
+                  scaling=FALSE, diss=inherits(dDF, "Euclidean"),
+                  critout=TRUE)
+
+clara_df <- data.frame(subset_50m$newDepth, clara$pamobject$clustering)%>%
+  dplyr::rename("newDepth" = "subset_50m.newDepth","cluster" = "clara.pamobject.clustering")
+
+clara_df$cluster<-as.character(clara_df$cluster)
+
+clara_max_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==max(newDepth))%>%
+  unique()%>%
+  dplyr::rename("max_depth" = "newDepth")
+
+clara_min_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==min(newDepth))%>%
+  unique()%>%
+  dplyr::rename("min_depth" = "newDepth")
+
+clara_summary<-left_join(clara_min_summ, clara_max_summ, by = join_by(cluster))%>%
+  arrange(min_depth)
+
+clara_summary
+
+write.csv(clara_summary, paste0(selected_clusters_folder, "clara_selected_cluster_combination_50_2clusters.csv"), row.names = F)
+
+```
+
+```{r}
+clara_df<-clara_df%>%
+  mutate(Dataset=case_when(
+    cluster=="1" ~ "Benthic", # CHANGE NUMBERS 
+    cluster!="1" ~ "Pelagic"))
+
+ggplot(clara_df, aes(x = sample(1:nrow(clara_df)), y = newDepth, group=Dataset)) +
+  geom_point(aes(color=Dataset)) +
+  scale_colour_Bede("SAS")+
+  theme_bw()+
+  scale_y_reverse() +
+  xlab("Index") +
+  ylab("OBIS Record Depth") +
+  labs(title = "Final clustered OBIS record depths for the 50 m subset",
+       subtitle = "n. clusters:2, benthos: 45.5-62.5 m")+
+  theme(plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", size = 16),
+        axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18))
+
+ggsave("Selected_benthic_Pelagic_Split_50m_TaxonID2_global.jpeg",
+       plot=last_plot(),
+       device = "jpeg",
+       width = 16,
+       height = 9,
+       path = selected_clusters_folder,
+       dpi=600)
+```
+
+##### 100 m
+
+```{r}
+dmean <-mean(subset_100m$newDepth)
+dstdev <-sd(subset_100m$newDepth)
+dnorm <-((subset_100m$newDepth)-dmean)/dstdev
+dmin <-min(subset_100m$newDepth)
+dmax <-max(subset_100m$newDepth)
+dcor <-((dnorm-dmin)/(dmax-dmin))
+
+dDF <- data.frame(dcor)
+names(dDF)[1] <- "depth"
+
+clara <- pamk(dDF,krange=2,criterion="asw", usepam=FALSE, 
+                  scaling=FALSE, diss=inherits(dDF, "Euclidean"),
+                  critout=TRUE)
+
+clara_df <- data.frame(subset_100m$newDepth, clara$pamobject$clustering)%>%
+  dplyr::rename("newDepth" = "subset_100m.newDepth","cluster" = "clara.pamobject.clustering")
+
+clara_df$cluster<-as.character(clara_df$cluster)
+
+clara_max_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==max(newDepth))%>%
+  unique()%>%
+  dplyr::rename("max_depth" = "newDepth")
+
+clara_min_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==min(newDepth))%>%
+  unique()%>%
+  dplyr::rename("min_depth" = "newDepth")
+
+clara_summary<-left_join(clara_min_summ, clara_max_summ, by = join_by(cluster))%>%
+  arrange(min_depth)
+
+clara_summary
+
+write.csv(clara_summary, paste0(selected_clusters_folder, "clara_selected_cluster_combination_100_2clusters.csv"), row.names = F)
+
+```
+
+```{r}
+clara_df<-clara_df%>%
+  mutate(Dataset=case_when(
+    cluster=="1" ~ "Benthic", # CHANGE NUMBERS 
+    cluster!="1" ~ "Pelagic"))
+
+ggplot(clara_df, aes(x = sample(1:nrow(clara_df)), y = newDepth, group=Dataset)) +
+  geom_point(aes(color=Dataset)) +
+  scale_colour_Bede("SAS")+
+  theme_bw()+
+  scale_y_reverse() +
+  xlab("Index") +
+  ylab("OBIS Record Depth") +
+  labs(title = "Final clustered OBIS record depths for the 100 m subset",
+       subtitle = "n. clusters:2, benthos: 74-109.5 m")+
+  theme(plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", size = 16),
+        axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18))
+
+ggsave("Selected_benthic_Pelagic_Split_100m_TaxonID2_global.jpeg",
+       plot=last_plot(),
+       device = "jpeg",
+       width = 16,
+       height = 9,
+       path = selected_clusters_folder,
+       dpi=600)
+```
+
+##### 150 m
+
+```{r}
+dmean <-mean(subset_150m$newDepth)
+dstdev <-sd(subset_150m$newDepth)
+dnorm <-((subset_150m$newDepth)-dmean)/dstdev
+dmin <-min(subset_150m$newDepth)
+dmax <-max(subset_150m$newDepth)
+dcor <-((dnorm-dmin)/(dmax-dmin))
+
+dDF <- data.frame(dcor)
+names(dDF)[1] <- "depth"
+
+clara <- pamk(dDF,krange=2,criterion="asw", usepam=FALSE, 
+                  scaling=FALSE, diss=inherits(dDF, "Euclidean"),
+                  critout=TRUE)
+
+clara_df <- data.frame(subset_150m$newDepth, clara$pamobject$clustering)%>%
+  dplyr::rename("newDepth" = "subset_150m.newDepth","cluster" = "clara.pamobject.clustering")
+
+clara_df$cluster<-as.character(clara_df$cluster)
+
+clara_max_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==max(newDepth))%>%
+  unique()%>%
+  dplyr::rename("max_depth" = "newDepth")
+
+clara_min_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==min(newDepth))%>%
+  unique()%>%
+  dplyr::rename("min_depth" = "newDepth")
+
+clara_summary<-left_join(clara_min_summ, clara_max_summ, by = join_by(cluster))%>%
+  arrange(min_depth)
+
+clara_summary
+
+write.csv(clara_summary, paste0(selected_clusters_folder, "clara_selected_cluster_combination_150_2clusters.csv"), row.names = F)
+
+```
+
+```{r}
+clara_df<-clara_df%>%
+  mutate(Dataset=case_when(
+    cluster=="1" ~ "Benthic", # CHANGE NUMBERS 
+    cluster!="1" ~ "Pelagic"))
+
+ggplot(clara_df, aes(x = sample(1:nrow(clara_df)), y = newDepth, group=Dataset)) +
+  geom_point(aes(color=Dataset)) +
+  scale_colour_Bede("SAS")+
+  theme_bw()+
+  scale_y_reverse() +
+  xlab("Index") +
+  ylab("OBIS Record Depth") +
+  labs(title = "Final clustered OBIS record depths for the 150 m subset",
+       subtitle = "n. clusters:2, benthos: 114-167.5 m")+
+  theme(plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", size = 16),
+        axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18))
+
+ggsave("Selected_benthic_Pelagic_Split_150m_TaxonID2_global.jpeg",
+       plot=last_plot(),
+       device = "jpeg",
+       width = 16,
+       height = 9,
+       path = selected_clusters_folder,
+       dpi=600)
+```
+
+##### 200 m
+
+```{r}
+dmean <-mean(subset_200m$newDepth)
+dstdev <-sd(subset_200m$newDepth)
+dnorm <-((subset_200m$newDepth)-dmean)/dstdev
+dmin <-min(subset_200m$newDepth)
+dmax <-max(subset_200m$newDepth)
+dcor <-((dnorm-dmin)/(dmax-dmin))
+
+dDF <- data.frame(dcor)
+names(dDF)[1] <- "depth"
+
+clara <- pamk(dDF,krange=5,criterion="asw", usepam=FALSE, 
+                  scaling=FALSE, diss=inherits(dDF, "Euclidean"),
+                  critout=TRUE)
+
+clara_df <- data.frame(subset_200m$newDepth, clara$pamobject$clustering)%>%
+  dplyr::rename("newDepth" = "subset_200m.newDepth","cluster" = "clara.pamobject.clustering")
+
+clara_df$cluster<-as.character(clara_df$cluster)
+
+clara_max_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==max(newDepth))%>%
+  unique()%>%
+  dplyr::rename("max_depth" = "newDepth")
+
+clara_min_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==min(newDepth))%>%
+  unique()%>%
+  dplyr::rename("min_depth" = "newDepth")
+
+clara_summary<-left_join(clara_min_summ, clara_max_summ, by = join_by(cluster))%>%
+  arrange(min_depth)
+
+clara_summary
+
+# write.csv(clara_summary, paste0(selected_clusters_folder, "clara_selected_cluster_combination_200_5clusters.csv"), row.names = F)
+
+```
+
+```{r}
+clara_df<-clara_df%>%
+  mutate(Dataset=case_when(
+    newDepth>=174 ~ "Benthic",
+    newDepth<174 ~ "Pelagic"))
+
+ggplot(clara_df, aes(x = sample(1:nrow(clara_df)), y = newDepth, group=Dataset)) +
+  geom_point(aes(color=Dataset)) +
+  scale_colour_Bede("SAS")+
+  theme_bw()+
+  scale_y_reverse() +
+  xlab("Index") +
+  ylab("OBIS Record Depth") +
+  labs(title = "Final clustered OBIS record depths for the 200 m subset",
+       subtitle = "n. clusters:5, benthos: 174-229 m")+
+  theme(plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", size = 16),
+        axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18))
+
+ggsave("Selected_benthic_Pelagic_Split_200m_TaxonID2_global.jpeg",
+       plot=last_plot(),
+       device = "jpeg",
+       width = 16,
+       height = 9,
+       path = selected_clusters_folder,
+       dpi=600)
+```
+
+##### 400 m
+
+```{r}
+dmean <-mean(subset_400m$newDepth)
+dstdev <-sd(subset_400m$newDepth)
+dnorm <-((subset_400m$newDepth)-dmean)/dstdev
+dmin <-min(subset_400m$newDepth)
+dmax <-max(subset_400m$newDepth)
+dcor <-((dnorm-dmin)/(dmax-dmin))
+
+dDF <- data.frame(dcor)
+names(dDF)[1] <- "depth"
+
+clara <- pamk(dDF,krange=3,criterion="asw", usepam=FALSE, 
+                  scaling=FALSE, diss=inherits(dDF, "Euclidean"),
+                  critout=TRUE)
+
+clara_df <- data.frame(subset_400m$newDepth, clara$pamobject$clustering)%>%
+  dplyr::rename("newDepth" = "subset_400m.newDepth","cluster" = "clara.pamobject.clustering")
+
+clara_df$cluster<-as.character(clara_df$cluster)
+
+clara_max_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==max(newDepth))%>%
+  unique()%>%
+  dplyr::rename("max_depth" = "newDepth")
+
+clara_min_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==min(newDepth))%>%
+  unique()%>%
+  dplyr::rename("min_depth" = "newDepth")
+
+clara_summary<-left_join(clara_min_summ, clara_max_summ, by = join_by(cluster))%>%
+  arrange(min_depth)
+
+clara_summary
+
+write.csv(clara_summary, paste0(selected_clusters_folder, "clara_selected_cluster_combination_400_3clusters.csv"), row.names = F)
+
+```
+
+```{r}
+clara_df<-clara_df%>%
+  mutate(Dataset=case_when(
+    cluster=="2" ~ "Benthic", # CHANGE NUMBERS 
+    cluster!="2" ~ "Pelagic"))
+
+ggplot(clara_df, aes(x = sample(1:nrow(clara_df)), y = newDepth, group=Dataset)) +
+  geom_point(aes(color=Dataset)) +
+  scale_colour_Bede("SAS")+
+  theme_bw()+
+  scale_y_reverse() +
+  xlab("Index") +
+  ylab("OBIS Record Depth") +
+  labs(title = "Final clustered OBIS record depths for the 400 m subset",
+       subtitle = "n. clusters:3, benthos: 300-444 m")+
+  theme(plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", size = 16),
+        axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18))
+
+ggsave("Selected_benthic_Pelagic_Split_400m_TaxonID2_global.jpeg",
+       plot=last_plot(),
+       device = "jpeg",
+       width = 16,
+       height = 9,
+       path = selected_clusters_folder,
+       dpi=600)
+```
+
+##### 600 m
+
+```{r}
+dmean <-mean(subset_600m$newDepth)
+dstdev <-sd(subset_600m$newDepth)
+dnorm <-((subset_600m$newDepth)-dmean)/dstdev
+dmin <-min(subset_600m$newDepth)
+dmax <-max(subset_600m$newDepth)
+dcor <-((dnorm-dmin)/(dmax-dmin))
+
+dDF <- data.frame(dcor)
+names(dDF)[1] <- "depth"
+
+clara <- pamk(dDF,krange=5,criterion="asw", usepam=FALSE, 
+                  scaling=FALSE, diss=inherits(dDF, "Euclidean"),
+                  critout=TRUE)
+
+clara_df <- data.frame(subset_600m$newDepth, clara$pamobject$clustering)%>%
+  dplyr::rename("newDepth" = "subset_600m.newDepth","cluster" = "clara.pamobject.clustering")
+
+clara_df$cluster<-as.character(clara_df$cluster)
+
+clara_max_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==max(newDepth))%>%
+  unique()%>%
+  dplyr::rename("max_depth" = "newDepth")
+
+clara_min_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==min(newDepth))%>%
+  unique()%>%
+  dplyr::rename("min_depth" = "newDepth")
+
+clara_summary<-left_join(clara_min_summ, clara_max_summ, by = join_by(cluster))%>%
+  arrange(min_depth)
+
+clara_summary
+
+write.csv(clara_summary, paste0(selected_clusters_folder, "clara_selected_cluster_combination_600_5clusters.csv"), row.names = F)
+
+```
+
+```{r}
+clara_df<-clara_df%>%
+  mutate(Dataset=case_when(
+    cluster=="1" ~ "Benthic", # CHANGE NUMBERS 
+    cluster!="1" ~ "Pelagic"))
+
+ggplot(clara_df, aes(x = sample(1:nrow(clara_df)), y = newDepth, group=Dataset)) +
+  geom_point(aes(color=Dataset)) +
+  scale_colour_Bede("SAS")+
+  theme_bw()+
+  scale_y_reverse() +
+  xlab("Index") +
+  ylab("OBIS Record Depth") +
+  labs(title = "Final clustered OBIS record depths for the 600 m subset",
+       subtitle = "n. clusters:5, benthos: 554-659 m")+
+  theme(plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", size = 16),
+        axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18))
+
+ggsave("Selected_benthic_Pelagic_Split_600m_TaxonID2_global.jpeg",
+       plot=last_plot(),
+       device = "jpeg",
+       width = 16,
+       height = 9,
+       path = selected_clusters_folder,
+       dpi=600)
+```
+
+##### 800 m
+
+```{r}
+dmean <-mean(subset_800m$newDepth)
+dstdev <-sd(subset_800m$newDepth)
+dnorm <-((subset_800m$newDepth)-dmean)/dstdev
+dmin <-min(subset_800m$newDepth)
+dmax <-max(subset_800m$newDepth)
+dcor <-((dnorm-dmin)/(dmax-dmin))
+
+dDF <- data.frame(dcor)
+names(dDF)[1] <- "depth"
+
+clara <- pamk(dDF,krange=4,criterion="asw", usepam=FALSE, 
+                  scaling=FALSE, diss=inherits(dDF, "Euclidean"),
+                  critout=TRUE)
+
+clara_df <- data.frame(subset_800m$newDepth, clara$pamobject$clustering)%>%
+  dplyr::rename("newDepth" = "subset_800m.newDepth","cluster" = "clara.pamobject.clustering")
+
+clara_df$cluster<-as.character(clara_df$cluster)
+
+clara_max_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==max(newDepth))%>%
+  unique()%>%
+  dplyr::rename("max_depth" = "newDepth")
+
+clara_min_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==min(newDepth))%>%
+  unique()%>%
+  dplyr::rename("min_depth" = "newDepth")
+
+clara_summary<-left_join(clara_min_summ, clara_max_summ, by = join_by(cluster))%>%
+  arrange(min_depth)
+
+clara_summary
+
+write.csv(clara_summary, paste0(selected_clusters_folder, "clara_selected_cluster_combination_800_4clusters.csv"), row.names = F)
+
+```
+
+```{r}
+clara_df<-clara_df%>%
+  mutate(Dataset=case_when(
+    cluster=="1" ~ "Benthic", # CHANGE NUMBERS 
+    cluster!="1" ~ "Pelagic"))
+
+ggplot(clara_df, aes(x = sample(1:nrow(clara_df)), y = newDepth, group=Dataset)) +
+  geom_point(aes(color=Dataset)) +
+  scale_colour_Bede("SAS")+
+  theme_bw()+
+  scale_y_reverse() +
+  xlab("Index") +
+  ylab("OBIS Record Depth") +
+  labs(title = "Final clustered OBIS record depths for the 800 m subset",
+       subtitle = "n. clusters:4, benthos: 777-825 m")+
+  theme(plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", size = 16),
+        axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18))
+
+ggsave("Selected_benthic_Pelagic_Split_800m_TaxonID2_global.jpeg",
+       plot=last_plot(),
+       device = "jpeg",
+       width = 16,
+       height = 9,
+       path = selected_clusters_folder,
+       dpi=600)
+```
+
+##### 1000 m
+
+```{r}
+dmean <-mean(subset_1000m$newDepth)
+dstdev <-sd(subset_1000m$newDepth)
+dnorm <-((subset_1000m$newDepth)-dmean)/dstdev
+dmin <-min(subset_1000m$newDepth)
+dmax <-max(subset_1000m$newDepth)
+dcor <-((dnorm-dmin)/(dmax-dmin))
+
+dDF <- data.frame(dcor)
+names(dDF)[1] <- "depth"
+
+clara <- pamk(dDF,krange=4,criterion="asw", usepam=FALSE, 
+                  scaling=FALSE, diss=inherits(dDF, "Euclidean"),
+                  critout=TRUE)
+
+clara_df <- data.frame(subset_1000m$newDepth, clara$pamobject$clustering)%>%
+  dplyr::rename("newDepth" = "subset_1000m.newDepth","cluster" = "clara.pamobject.clustering")
+
+clara_df$cluster<-as.character(clara_df$cluster)
+
+clara_max_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==max(newDepth))%>%
+  unique()%>%
+  dplyr::rename("max_depth" = "newDepth")
+
+clara_min_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==min(newDepth))%>%
+  unique()%>%
+  dplyr::rename("min_depth" = "newDepth")
+
+clara_summary<-left_join(clara_min_summ, clara_max_summ, by = join_by(cluster))%>%
+  arrange(min_depth)
+
+clara_summary
+
+# write.csv(clara_summary, paste0(selected_clusters_folder, "clara_selected_cluster_combination_1000_4clusters.csv"), row.names = F)
+
+```
+
+```{r}
+clara_df<-clara_df%>%
+  mutate(Dataset=case_when(
+    cluster=="1" ~ "Benthic", # CHANGE NUMBERS 
+    cluster!="1" ~ "Pelagic"))
+
+ggplot(clara_df, aes(x = sample(1:nrow(clara_df)), y = newDepth, group=Dataset)) +
+  geom_point(aes(color=Dataset)) +
+  scale_colour_Bede("SAS")+
+  theme_bw()+
+  scale_y_reverse() +
+  xlab("Index") +
+  ylab("OBIS Record Depth") +
+  labs(title = "Final clustered OBIS record depths for the 1000 m subset",
+       subtitle = "n. clusters:4, benthos: 951-1070 m")+
+  theme(plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", size = 16),
+        axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18))
+
+ggsave("Selected_benthic_Pelagic_Split_1000m_TaxonID2_global.jpeg",
+       plot=last_plot(),
+       device = "jpeg",
+       width = 16,
+       height = 9,
+       path = selected_clusters_folder,
+       dpi=600)
+```
+
+##### 3000 m
+
+```{r}
+dmean <-mean(subset_3000m$newDepth)
+dstdev <-sd(subset_3000m$newDepth)
+dnorm <-((subset_3000m$newDepth)-dmean)/dstdev
+dmin <-min(subset_3000m$newDepth)
+dmax <-max(subset_3000m$newDepth)
+dcor <-((dnorm-dmin)/(dmax-dmin))
+
+dDF <- data.frame(dcor)
+names(dDF)[1] <- "depth"
+
+clara <- pamk(dDF,krange=6,criterion="asw", usepam=FALSE,
+                  scaling=FALSE, diss=inherits(dDF, "Euclidean"),
+                  critout=TRUE)
+
+clara_df <- data.frame(subset_3000m$newDepth, clara$pamobject$clustering)%>%
+  dplyr::rename("newDepth" = "subset_3000m.newDepth","cluster" = "clara.pamobject.clustering")
+
+clara_df$cluster<-as.character(clara_df$cluster)
+
+clara_max_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==max(newDepth))%>%
+  unique()%>%
+  dplyr::rename("max_depth" = "newDepth")
+
+clara_min_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==min(newDepth))%>%
+  unique()%>%
+  dplyr::rename("min_depth" = "newDepth")
+
+clara_summary<-left_join(clara_min_summ, clara_max_summ, by = join_by(cluster))%>%
+  arrange(min_depth)
+
+clara_summary
+
+write.csv(clara_summary, paste0(selected_clusters_folder, "clara_selected_cluster_combination_3000_6clusters.csv"), row.names = F)
+
+```
+
+```{r}
+clara_df<-clara_df%>%
+  mutate(Dataset=case_when(
+    cluster=="2" ~ "Benthic", # CHANGE NUMBERS 
+    cluster!="2" ~ "Pelagic"))
+
+ggplot(clara_df, aes(x = sample(1:nrow(clara_df)), y = newDepth, group=Dataset)) +
+  geom_point(aes(color=Dataset)) +
+  scale_colour_Bede("SAS")+
+  theme_bw()+
+  scale_y_reverse() +
+  xlab("Index") +
+  ylab("OBIS Record Depth") +
+  labs(title = "Final clustered OBIS record depths for the 3000 m subset",
+       subtitle = "n. clusters:6, benthos: 2540.99-3057.26 m")+
+  theme(plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", size = 16),
+        axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18))
+
+ggsave("Selected_benthic_Pelagic_Split_3000m_TaxonID2_global.jpeg",
+       plot=last_plot(),
+       device = "jpeg",
+       width = 16,
+       height = 9,
+       path = selected_clusters_folder,
+       dpi=600)
+```
+
+##### 5000 m
+
+```{r}
+dmean <-mean(subset_5000m$newDepth)
+dstdev <-sd(subset_5000m$newDepth)
+dnorm <-((subset_5000m$newDepth)-dmean)/dstdev
+dmin <-min(subset_5000m$newDepth)
+dmax <-max(subset_5000m$newDepth)
+dcor <-((dnorm-dmin)/(dmax-dmin))
+
+dDF <- data.frame(dcor)
+names(dDF)[1] <- "depth"
+
+clara <- pamk(dDF,krange=6,criterion="asw", usepam=FALSE, 
+                  scaling=FALSE, diss=inherits(dDF, "Euclidean"),
+                  critout=TRUE)
+
+clara_df <- data.frame(subset_5000m$newDepth, clara$pamobject$clustering)%>%
+  dplyr::rename("newDepth" = "subset_5000m.newDepth","cluster" = "clara.pamobject.clustering")
+
+clara_df$cluster<-as.character(clara_df$cluster)
+
+clara_max_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==max(newDepth))%>%
+  unique()%>%
+  dplyr::rename("max_depth" = "newDepth")
+
+clara_min_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==min(newDepth))%>%
+  unique()%>%
+  dplyr::rename("min_depth" = "newDepth")
+
+clara_summary<-left_join(clara_min_summ, clara_max_summ, by = join_by(cluster))%>%
+  arrange(min_depth)
+
+clara_summary
+
+write.csv(clara_summary, paste0(selected_clusters_folder, "clara_selected_cluster_combination_5000_6clusters.csv"), row.names = F)
+
+```
+
+```{r}
+clara_df<-clara_df%>%
+  mutate(Dataset=case_when(
+    cluster=="1" ~ "Benthic", # CHANGE NUMBERS 
+    cluster!="1" ~ "Pelagic"))
+
+ggplot(clara_df, aes(x = sample(1:nrow(clara_df)), y = newDepth, group=Dataset)) +
+  geom_point(aes(color=Dataset)) +
+  scale_colour_Bede("SAS")+
+  theme_bw()+
+  scale_y_reverse() +
+  xlab("Index") +
+  ylab("OBIS Record Depth") +
+  labs(title = "Final clustered OBIS record depths for the 5000 m subset",
+       subtitle = "n. clusters:6, benthos: 4740-5000 m")+
+  theme(plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", size = 16),
+        axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18))
+
+ggsave("Selected_benthic_Pelagic_Split_5000m_TaxonID2_global.jpeg",
+       plot=last_plot(),
+       device = "jpeg",
+       width = 16,
+       height = 9,
+       path = selected_clusters_folder,
+       dpi=600)
+```
+
+##### 7000 m
+
+```{r}
+
+dmean <-mean(subset_7000m$newDepth)
+dstdev <-sd(subset_7000m$newDepth)
+dnorm <-((subset_7000m$newDepth)-dmean)/dstdev
+dmin <-min(subset_7000m$newDepth)
+dmax <-max(subset_7000m$newDepth)
+dcor <-((dnorm-dmin)/(dmax-dmin))
+
+dDF <- data.frame(dcor)
+names(dDF)[1] <- "depth"
+
+clara <- pamk(dDF,krange=4,criterion="asw", usepam=FALSE, 
+                  scaling=FALSE, diss=inherits(dDF, "Euclidean"),
+                  critout=TRUE)
+
+clara_df <- data.frame(subset_7000m$newDepth, clara$pamobject$clustering)%>%
+  dplyr::rename("newDepth" = "subset_7000m.newDepth","cluster" = "clara.pamobject.clustering")
+
+clara_df$cluster<-as.character(clara_df$cluster)
+
+clara_max_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==max(newDepth))%>%
+  unique()%>%
+  dplyr::rename("max_depth" = "newDepth")
+
+clara_min_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==min(newDepth))%>%
+  unique()%>%
+  dplyr::rename("min_depth" = "newDepth")
+
+clara_summary<-left_join(clara_min_summ, clara_max_summ, by = join_by(cluster))%>%
+  arrange(min_depth)
+
+clara_summary
+
+write.csv(clara_summary, paste0(selected_clusters_folder, "clara_selected_cluster_combination_7000_4clusters.csv"), row.names = F)
+```
+
+```{r}
+clara_df<-clara_df%>%
+  mutate(Dataset=case_when(
+    cluster=="2" ~ "Benthic", # CHANGE NUMBERS 
+    cluster!="2" ~ "Pelagic"))
+
+ggplot(clara_df, aes(x = sample(1:nrow(clara_df)), y = newDepth, group=Dataset)) +
+  geom_point(aes(color=Dataset)) +
+  scale_colour_Bede("SAS")+
+  theme_bw()+
+  scale_y_reverse() +
+  xlab("Index") +
+  ylab("OBIS Record Depth") +
+  labs(title = "Final clustered OBIS record depths for the 7000 m subset",
+       subtitle = "n. clusters:4, benthos: 6102.5-6961 m")+
+  theme(plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", size = 16),
+        axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18))
+
+ggsave("Selected_benthic_Pelagic_Split_7000m_TaxonID2_global.jpeg",
+       plot=last_plot(),
+       device = "jpeg",
+       width = 16,
+       height = 9,
+       path = selected_clusters_folder,
+       dpi=600)
+```
+
+##### 10000 m
+
+```{r}
+dmean <-mean(subset_10000m$newDepth)
+dstdev <-sd(subset_10000m$newDepth)
+dnorm <-((subset_10000m$newDepth)-dmean)/dstdev
+dmin <-min(subset_10000m$newDepth)
+dmax <-max(subset_10000m$newDepth)
+dcor <-((dnorm-dmin)/(dmax-dmin))
+
+dDF <- data.frame(dcor)
+names(dDF)[1] <- "depth"
+
+clara <- pamk(dDF,krange=2,criterion="asw", usepam=FALSE, 
+                  scaling=FALSE, diss=inherits(dDF, "Euclidean"),
+                  critout=TRUE)
+
+clara_df <- data.frame(subset_10000m$newDepth, clara$pamobject$clustering)%>%
+  dplyr::rename("newDepth" = "subset_10000m.newDepth","cluster" = "clara.pamobject.clustering")
+
+clara_df$cluster<-as.character(clara_df$cluster)
+
+clara_max_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==max(newDepth))%>%
+  unique()%>%
+  dplyr::rename("max_depth" = "newDepth")
+
+clara_min_summ<-clara_df%>%
+  group_by(cluster)%>%
+  filter(newDepth==min(newDepth))%>%
+  unique()%>%
+  dplyr::rename("min_depth" = "newDepth")
+
+clara_summary<-left_join(clara_min_summ, clara_max_summ, by = join_by(cluster))%>%
+  arrange(min_depth)
+
+clara_summary
+
+write.csv(clara_summary, paste0(selected_clusters_folder, "clara_selected_cluster_combination_10000_2clusters.csv"), row.names = F)
+```
+
+```{r}
+clara_df<-clara_df%>%
+  mutate(Dataset=case_when(
+    cluster=="1" ~ "Benthic", # CHANGE NUMBERS 
+    cluster!="1" ~ "Pelagic"))
+
+ggplot(clara_df, aes(x = sample(1:nrow(clara_df)), y = newDepth, group=Dataset)) +
+  geom_point(aes(color=Dataset)) +
+  scale_colour_Bede("SAS")+
+  theme_bw()+
+  scale_y_reverse() +
+  xlab("Index") +
+  ylab("OBIS Record Depth") +
+  labs(title = "Final clustered OBIS record depths for the 10000 m subset",
+       subtitle = "n. clusters:2, benthos: 9676.5-10898 m")+
+  theme(plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", size = 16),
+        axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18))
+
+ggsave("Selected_benthic_Pelagic_Split_10000m_TaxonID2_global.jpeg",
+       plot=last_plot(),
+       device = "jpeg",
+       width = 16,
+       height = 9,
+       path = selected_clusters_folder,
+       dpi=600)
+```
+
+#### Plotting all min & max depths
+
+```{r}
+data<-read.csv(paste0(selected_clusters_folder, "/clara_selected_cluster_combination_ALL.csv"), head=T, sep=",")
+data$subset<-as.character(data$subset)
+
+Depth_horizon<-c("30", "40", "50", "100", "150", "200", "400", "600", "800", "1000", "3000", "5000", "7000", "10000")
+
+ggplot(data=data) +
+  geom_line(aes(x=subset, y=benthic_max), color='#2494a2')+
+  geom_point(aes(x=subset, y=benthic_max), color='#2494a2')+
+  geom_line(aes(x=subset, y=benthic_min), color='#dbb13b')+
+  geom_point(aes(x=subset, y=benthic_min), color='#dbb13b')+
+  theme_bw()+
+  labs(title = "Benthic data max & min",
+       subtitle = "08/09/23")+
+  ylab("Depth (m)")+
+  xlab("Subset")+
+  scale_colour_Bede("SAS")+
+  theme(plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", size = 16),
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18))+
+  scale_y_reverse()+
+  scale_x_discrete(limits = Depth_horizon)
+
+ggsave("Very_pretty_graph.jpeg",
+       plot=last_plot(),
+       device = "jpeg",
+       width = 16,
+       height = 9,
+       path = selected_clusters_folder,
+       dpi=600)
+
+```

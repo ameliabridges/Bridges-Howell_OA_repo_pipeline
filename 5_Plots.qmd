@@ -1,0 +1,367 @@
+---
+title: "Compiliing the final dataset"
+format: 
+    html:
+      css: cayman.css
+
+editor: source
+---
+
+# Setting up the working environment
+
+## Required packages
+
+```{r}
+#| warning: false
+#| message: false
+
+library(raster)
+library(tidyverse)
+library(rnaturalearth)
+library(cowplot)
+library(sf)
+library(plyr)
+library(Utilities.Package)
+library(classInt)
+library(fpc)
+library(BBmisc)
+library(performance)
+library(mgcv)
+```
+
+## Folder structures
+
+Various folders where the data is stored (if working on work Windows laptop):
+
+```{r}
+wd<-"/Volumes/One Touch/Main_folder/In_prep_submittted_manuscripts/Bridges_etal_OBIS_assessment/OBIS_data_clean/Code/"
+
+final_datasets_folder<-paste0(wd, "step9_final_datasets/Benthic/")
+final_datasets_folder_P<-paste0(wd, "step9_final_datasets/Pelagic/")
+selected_clusters_folder<-paste0(wd, "step8_selected_clusters")
+
+gebco_folder<-"D:/OneDrive/OneDrive - University of Plymouth/GIS Files/World_Layers/GEBCO/GEBCO_2020/"
+
+figures_folder<-paste0(wd, "OBIS_data_cleaning/Figures/")
+
+```
+
+## Plot aesthetics
+
+```{r}
+# Theme SAS colours...
+gold="#dbb13b"
+blue="#2494a2"
+
+theme_Mils <- function(...){
+  
+  ggplot2::theme_classic()+
+    ggplot2::theme(panel.grid = ggplot2::element_line(color = "#b4aea9"),
+                   panel.grid.minor = ggplot2::element_blank(),
+                   panel.grid.major.x = ggplot2::element_blank(),
+                   plot.title.position = "plot",
+                   panel.grid.major.y = ggplot2::element_blank(),
+                   axis.line = ggplot2::element_line(colour = "grey50"),
+                   axis.title.y = ggplot2::element_text(face="bold", angle=90),
+                   axis.title.x = ggplot2::element_text(face="bold"),
+                   rect = ggplot2::element_blank(),
+                   panel.border = element_rect(colour = "black", fill=NA, size=1),
+                   legend.text.align = 0,
+                   legend.title.align = 0,
+                   legend.text = element_text(color = "black", size = 14),
+                   legend.title = element_text(color = "black", size = 14, face="bold"),
+                   axis.title = ggplot2::element_text(size=14,vjust=0.5),
+                   axis.text.x = ggplot2::element_text(size = 14,
+                                                       colour = "black"),
+                   axis.text.y = ggplot2::element_text(colour = "black",
+                                                       size = 14))
+}
+```
+
+## Benthic cloud prediction line
+
+```{r}
+benthic_vals<-read.csv(paste0(selected_clusters_folder, "/clara_selected_cluster_combination_ALL.csv"), head=T, sep=",")%>%
+  dplyr::rename(gebco_depth_value=subset,
+                obis_benthic_max=benthic_max,
+                obis_benthic_min=benthic_min)
+
+min_gam_mod<-mgcv::gam(obis_benthic_min~s(gebco_depth_value), data=benthic_vals)
+
+full_water_col<-data.frame(30:10816)%>%
+  dplyr::rename("gebco_depth_value"="X30.10816")
+
+predicted_b_min<- predict(min_gam_mod, newdata=full_water_col)
+full_water_col <- data.frame(full_water_col, predicted_b_min)
+
+benthic_cloud_plot<-ggplot(full_water_col, aes(x=gebco_depth_value, y=gebco_depth_value)) +
+  geom_ribbon(aes(ymin=predicted_b_min,ymax=gebco_depth_value), fill=gold, alpha=0.5)+
+  geom_line(aes(y=predicted_b_min), col=blue, linewidth=1) +
+  geom_line(aes(y=gebco_depth_value), col=blue, linewidth=1, linetype = "dotted") +
+  theme_Mils() +
+  scale_y_reverse(breaks = seq(0, 10000, by = 1000)) +
+  ylab("Shallowest Record Considered Benthic (m)")+
+  xlab("GEBCO Seabed Depth Depth (m)")+
+  scale_x_continuous(breaks = seq(0, 10000, by = 1000))
+
+benthic_cloud_plot
+
+```
+
+```{r}
+# full_water_col<-full_water_col %>% 
+#   mutate(cloud_width=(gebco_depth_value-predicted_b_min))
+```
+
+```{r}
+# benthic_cloud_plot<-ggplot(full_water_col, aes(x=cloud_width, y=gebco_depth_value)) +
+#   geom_line(aes(y=predicted_b_min), col=blue) +
+#   theme_Mils() +
+#   scale_y_reverse() +
+#   ylab("Seabed Depth (m)")+
+#   xlab("Height of Benthic Cloud Above Seabed (m)") +
+#   scale_x_continuous(limits = c(0,9000))
+# 
+# benthic_cloud_plot
+```
+
+```{r}
+ggsave("Benthic_data_cloud.jpeg", 
+       plot=benthic_cloud_plot, 
+       device = "jpeg",
+       path = figures_folder,
+       dpi=600)
+```
+
+## Benthic depth & latitude density plots
+
+```{r}
+full_df<-read.csv(paste0(final_datasets_folder, "AllBenthicRecords_TaxonID2_Global_FINAL.csv"), head=T, sep=",")
+```
+
+### Latitude density plot
+
+```{r}
+plot1<-ggplot(full_df, aes(x=decimalLatitude  , y=..density..*1000)) + 
+  geom_density(fill=blue) +
+  xlab("Latitude") +
+  theme_Mils() +
+  theme(axis.title.y = element_blank())
+
+# plot1
+
+```
+
+### Depth density plot
+
+```{r}
+plot2<-ggplot(full_df, aes(x=depth  , y=..density..*1000)) + 
+  geom_density(fill=gold) +
+  xlab("Depth (m)") +
+  theme_Mils() +
+  theme(axis.title.y = element_blank())
+
+# plot2
+```
+
+### Grid
+
+```{r}
+plot<-plot_grid(plot1, plot2, ncol=1, align='vh', vjust=1, scale = 1)
+
+# y.grob <- textGrob("Density of Benthic OBIS Records", 
+#                    gp=gpar(fontface="bold", col="black", fontsize=15), rot=90)
+# 
+# final_grid<-grid.arrange(arrangeGrob(plot, left = y.grob))
+
+plot
+```
+
+```{r}
+ggsave("Benthic_depth_lat_density_plot.jpeg", 
+       plot=plot, 
+       device = "jpeg",
+       path = figures_folder,
+       dpi=600)
+```
+
+## Benthic phylum barplot
+
+```{r}
+phylum_summ<-read.csv(paste0(final_datasets_folder, "benthic_phylum_summary.csv"), head=T, sep=",")
+
+# keep top 10 most abundant phyla
+phylum_summ<-phylum_summ %>%
+    arrange(desc(Count)) %>%
+    slice(1:10)
+
+theme_Mils <- function(...){
+  
+  ggplot2::theme_classic()+
+    ggplot2::theme(panel.grid = ggplot2::element_line(color = "#b4aea9"),
+                   panel.grid.minor = ggplot2::element_blank(),
+                   panel.grid.major.x = ggplot2::element_blank(),
+                   plot.title.position = "plot",
+                   panel.grid.major.y = ggplot2::element_blank(),
+                   axis.line = ggplot2::element_line(colour = "grey50"),
+                   axis.title.y = ggplot2::element_text(face="bold", angle=90),
+                   axis.title.x = ggplot2::element_text(face="bold"),
+                   rect = ggplot2::element_blank(),
+                   panel.border = element_rect(colour = "black", fill=NA, size=1),
+                   legend.text.align = 0,
+                   legend.title.align = 0,
+                   legend.text = element_text(color = "black", size = 22),
+                   legend.title = element_text(color = "black", size = 22, face="bold"),
+                   axis.title = ggplot2::element_text(size=22,vjust=0.5),
+                   axis.text.x = ggplot2::element_text(size = 22,
+                                                       colour = "black"),
+                   axis.text.y = ggplot2::element_text(colour = "black",
+                                                       size = 22))
+}
+```
+
+```{r}
+options(scipen=999)
+
+barplot<-ggplot(data=phylum_summ, aes(x=reorder(Phylum, -Count), y=Count))+
+  geom_bar(stat = "identity", fill=blue)+
+  theme_Mils()+
+  ylab("Frequency of Occurence")+
+  xlab("Phylum")
+
+barplot
+  
+```
+
+```{r}
+ggsave("Benthic_phylum_barplot.jpeg",
+       plot=last_plot(),
+       device = "jpeg",
+       width = 16,
+       height = 9,
+       path = figures_folder,
+       dpi=600)
+```
+
+## Pelagic phylum barplot
+
+```{r}
+phylum_summ<-read.csv(paste0(final_datasets_folder_P, "pelagic_phylum_summary.csv"), head=T, sep=",")
+
+# keep top 10 most abundant phyla
+phylum_summ<-phylum_summ %>%
+    arrange(desc(Count)) %>%
+    slice(1:10)
+
+theme_Mils <- function(...){
+  
+  ggplot2::theme_classic()+
+    ggplot2::theme(panel.grid = ggplot2::element_line(color = "#b4aea9"),
+                   panel.grid.minor = ggplot2::element_blank(),
+                   panel.grid.major.x = ggplot2::element_blank(),
+                   plot.title.position = "plot",
+                   panel.grid.major.y = ggplot2::element_blank(),
+                   axis.line = ggplot2::element_line(colour = "grey50"),
+                   axis.title.y = ggplot2::element_text(face="bold", angle=90),
+                   axis.title.x = ggplot2::element_text(face="bold"),
+                   rect = ggplot2::element_blank(),
+                   panel.border = element_rect(colour = "black", fill=NA, size=1),
+                   legend.text.align = 0,
+                   legend.title.align = 0,
+                   legend.text = element_text(color = "black", size = 22),
+                   legend.title = element_text(color = "black", size = 22, face="bold"),
+                   axis.title = ggplot2::element_text(size=22,vjust=0.5),
+                   axis.text.x = ggplot2::element_text(size = 22,
+                                                       colour = "black"),
+                   axis.text.y = ggplot2::element_text(colour = "black",
+                                                       size = 22))
+}
+```
+
+```{r}
+options(scipen=999)
+
+barplot<-ggplot(data=phylum_summ, aes(x=reorder(Phylum, -Count), y=Count))+
+  geom_bar(stat = "identity", fill=blue)+
+  theme_Mils()+
+  ylab("Frequency of Occurence")+
+  xlab("Phylum")
+
+barplot
+  
+```
+
+```{r}
+ggsave("Pelagic_phylum_barplot.jpeg",
+       plot=last_plot(),
+       device = "jpeg",
+       width = 16,
+       height = 9,
+       path = figures_folder,
+       dpi=600)
+```
+
+## Pelagic depth & latitude density plots
+
+```{r}
+pel_data<-read.csv(paste0(final_datasets_folder_P, "AllPelagicRecords_TaxonID2_Global_FINAL.csv"), head=T, sep=",")
+
+pel_data_cropped<-pel_data %>% 
+  filter(obis_record_depth<2000)
+```
+
+### Latitude density plot
+
+```{r}
+plot1<-ggplot(pel_data, aes(x=decimalLatitude  , y=..density..*1000)) + 
+  geom_density(fill=blue) +
+  xlab("Latitude") +
+  theme_Mils() +
+  theme(axis.title.y = element_blank())
+
+# plot1
+
+```
+
+### Depth density plot
+
+```{r}
+plot2<-ggplot(pel_data, aes(x=depth  , y=..density..*1000)) + 
+  geom_density(fill=gold) +
+  xlab("Depth (m)") +
+  theme_Mils() +
+  theme(axis.title.y = element_blank())
+
+# plot2
+```
+
+### Grid
+
+```{r}
+plot<-plot_grid(plot1, plot2, ncol=1, align='vh', vjust=1, scale = 1)
+
+# y.grob <- textGrob("Density of Benthic OBIS Records", 
+#                    gp=gpar(fontface="bold", col="black", fontsize=15), rot=90)
+# 
+# final_grid<-grid.arrange(arrangeGrob(plot, left = y.grob))
+
+plot
+```
+
+```{r}
+ggsave("Pelagic_depth_lat_density_plot.jpeg", 
+       plot=plot, 
+       device = "jpeg",
+       path = figures_folder,
+       dpi=600)
+```
+
+```{r}
+hist(pel_data$decimalLatitude)
+n_hemi<-pel_data %>% 
+  filter(decimalLatitude>0)
+
+median(pel_data$obis_record_depth)
+```
+
+

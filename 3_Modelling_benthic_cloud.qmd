@@ -1,0 +1,266 @@
+---
+title: "Filtering GEBCO-linked OBIS data to distinguish benthic vs. pelagic taxa"
+format: 
+    html:
+      css: cayman.css
+
+editor: source
+---
+
+# Setting up the working environment
+
+## Required packages
+
+```{r}
+#| warning: false
+#| message: false
+
+library(raster)
+library(robis)
+library(tidyverse)
+library(rnaturalearth)
+library(cowplot)
+#library(rgeos)
+library(sf)
+library(plyr)
+library(Utilities.Package)
+library(classInt)
+library(fpc)
+library(BBmisc)
+library(performance)
+library(mgcv)
+```
+
+## Folder structures
+
+Various folders where the data is stored (if working on work Windows laptop):
+
+```{r}
+wd<-"/Volumes/One Touch/Main_folder/In_prep_submittted_manuscripts/Bridges_etal_OBIS_assessment/OBIS_data_clean/Code/"
+
+nwd<-"/Volumes/One Touch/Current_work/OBIS_Project_Files/step3_gebco_val_records/"
+
+# wd<-"D:/OneDrive/OneDrive - University of Plymouth/Projects/OBIS_data_clean/Code/"
+
+gebco_vals_folder<-paste0(nwd)
+
+selected_clusters_folder<-paste0(wd, "step8_selected_clusters/")
+
+final_datasets_folder<-paste0(wd, "step9_final_datasets/")
+
+```
+
+## Benthic values
+
+```{r}
+benthic_vals<-read.csv(paste0(selected_clusters_folder, "/clara_selected_cluster_combination_ALL.csv"), head=T, sep=",")%>%
+  dplyr::rename(gebco_depth_value=subset,
+                obis_benthic_max=benthic_max,
+                obis_benthic_min=benthic_min)
+```
+
+Quickly eyeball the data: 
+
+```{r}
+ggplot(data=benthic_vals)+
+  geom_point(aes(x=obis_benthic_min, y=gebco_depth_value))+
+  geom_line(aes(x=obis_benthic_min, y=gebco_depth_value))+
+  scale_y_reverse()+
+  scale_x_continuous(position = "top")
+```
+
+To me, this suggests a standard lm() will do (basically drawing a line through all the black points and another through all the pink).
+
+### General linear model
+
+If we were to use a lm, we need to check assumptions - first up, normality:
+
+```{r}
+shapiro_test_result<-shapiro.test(benthic_vals$obis_benthic_min)
+shapiro_test_result
+
+# Check the p-value against the significance level
+sig_level <- 0.05
+if (shapiro_test_result$p.value > sig_level) {
+  cat("The data looks normally distributed (fail to reject the null hypothesis)\n")
+} else {
+  cat("The data does NOT look normally distributed (reject the null hypothesis)\n")
+}
+
+```
+
+Okay, let's make the model and then check it:
+
+```{r}
+min_lm_mod<-lm(obis_benthic_min ~ gebco_depth_value, data = benthic_vals)
+summary(min_lm_mod)
+check_model(min_lm_mod)
+```
+
+Okay, this highlights some issues with the data, particularly around non-linearity (top right plot). Therefore, we do not meet the assumptions of a standard general linear model. I have a number of options here (non-exhaustive list):
+
+1. Transform the data
+2. Use a generalized linear model
+3. Advanced statistical models (GAMs etc.)
+
+### Transformation(s)
+
+Easiest thing is to sqrt the data and see if this is normal:
+
+```{r}
+benthic_vals$sqrt.obis_benthic_min<-sqrt(benthic_vals$obis_benthic_min)
+shapiro_test_result<-shapiro.test(benthic_vals$sqrt.obis_benthic_min)
+shapiro_test_result
+```
+
+Maybe try a log:
+
+```{r}
+benthic_vals$log.obis_benthic_min<-log(benthic_vals$obis_benthic_min)
+shapiro_test_result<-shapiro.test(benthic_vals$log.obis_benthic_min)
+shapiro_test_result
+```
+
+Okay this works, let's check a model:
+
+```{r}
+min_log_lm_mod<-lm(log.obis_benthic_min ~ gebco_depth_value, data = benthic_vals)
+summary(min_log_lm_mod)
+check_model(min_log_lm_mod)
+```
+
+I don't love these plots - I think there's still too much violating assumptions. Let's try a generalized linear model with a specified distributions on untransformed data. 
+
+### Generalized linear model
+
+```{r}
+check_distribution(min_lm_mod)
+```
+
+The Cauchy distribution is characterized by a heavy, "fat-tailed" shape, which means it has a relatively high probability of extreme values or outliers compared to many other probability distributions. If you look at the fitted vs. observed values above, you'll see this does make sense. Unfortunately, cauchy can't be called as a standard family, we have to set the function up.
+
+```{r}
+#| eval: false
+
+
+# Create a custom likelihood function for the Cauchy distribution
+cauchy_likelihood <- function(y, mu, theta) {
+  -sum(log(1 + ((y - mu) / theta)^2))
+}
+
+# Define a Cauchy GLM function that uses the custom likelihood
+cauchy_glm <- function(formula, data) {
+  neg_log_likelihood <- function(p) {
+    mu <- predict(p)
+    theta <- exp(p[length(p)])
+    -cauchy_likelihood(data$y, mu, theta)
+  }
+
+  fit <- optim(par = rep(0, length(coef(formula)) + 1), fn = neg_log_likelihood)
+  
+  list(
+    coefficients = fit$par[1:(length(fit$par) - 1)],
+    theta = exp(fit$par[length(fit$par)]),
+    logLik = -fit$value
+  )
+}
+
+# Fit a Cauchy GLM
+cauchy_model <- cauchy_glm(obis_benthic_max ~ gebco_depth_value, data=benthic_vals)
+
+# Print the results
+cat("Coefficients:\n", cauchy_model$coefficients, "\n")
+cat("Theta (scale parameter): ", cauchy_model$theta, "\n")
+cat("Log-Likelihood: ", cauchy_model$logLik, "\n")
+
+```
+
+I tried the above code (eval=f so it doesn't run) but I can't get it to work. Therefore, let's try with a GAM.
+
+### Generalised additive model
+
+```{r}
+min_gam_mod<-mgcv::gam(obis_benthic_min~s(gebco_depth_value), data=benthic_vals)
+summary(min_gam_mod)
+plot(min_gam_mod)
+```
+
+```{r}
+check_model(min_gam_mod)
+```
+
+Next step is to try it on the real data using predict() and see what it looks like.
+
+## Section models
+
+### sX
+
+Bring in the large df:
+
+```{r}
+section6<-read.csv(paste0(gebco_vals_folder, "GEBCO_vals_TaxonID2_section6_300623.csv"), sep=",", head=T)
+
+section6<-section6%>%
+  mutate(obis_record_depth=abs(section6$depth))%>%
+  mutate(gebco_depth_value=abs(section6$gebco_depth_value))
+```
+
+Use GAM to predict new benthic minimum data:
+
+```{r}
+predicted_b_min<- predict(min_gam_mod, newdata=section6, se.fit=TRUE)
+section6 <- data.frame(section6, predicted_b_min, predicted_b_min$fit)
+section6$lower <- predicted_b_min$fit - 1.96 * predicted_b_min$se.fit
+section6$upper <- predicted_b_min$fit + 1.96 * predicted_b_min$se.fit
+ggplot(aes(x=predicted_b_min, y = gebco_depth_value), data = section6)+
+  geom_point()+
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.2) +
+  ggtitle("section6: Predicted Benthic Minimum Profile")+
+  scale_y_reverse()+
+  scale_x_continuous(position = "top")
+  
+```
+
+```{r}
+ggsave("section6_min_gam.jpeg",
+       plot=last_plot(),
+       device = "jpeg",
+       width = 16,
+       height = 9,
+       path = final_datasets_folder,
+       dpi=600)
+```
+
+Now we need to filter the data based on whether it's between the min and max values, and thus benthic or not. 
+
+```{r}
+# section6 <- section6 %>%
+#   mutate(BP = ifelse(obis_record_depth > predicted_b_min & obis_record_depth < predicted_b_max, "Benthic", "Pelagic"))
+
+section6 <- section6 %>%
+  mutate(BP=case_when(obis_record_depth > predicted_b_min ~ "Benthic",
+                      obis_record_depth < predicted_b_min ~ "Pelagic"))
+
+count(section6$BP=="Benthic")
+```
+
+Now we need to write out the results separately:
+
+```{r}
+benthic<-section6%>%
+  filter(BP=="Benthic")
+write.csv(benthic, paste0(final_datasets_folder, "GEBCO_vals_TaxonID2_section6_300623_benthic.csv"), row.names = F)
+
+pelagic<-section6%>%
+  filter(BP=="Pelagic")
+write.csv(pelagic, paste0(final_datasets_folder, "GEBCO_vals_TaxonID2_section6_300623_pelagic.csv"), row.names = F)
+```
+
+```{r}
+ggplot(aes(x=gebco_depth_value, y = obis_record_depth), data = pelagic)+
+  geom_point()+
+  ggtitle("section1: k5 vs nok")+
+  scale_y_reverse()+
+  scale_x_continuous(position = "top")
+```
+

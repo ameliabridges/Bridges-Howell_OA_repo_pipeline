@@ -1,0 +1,195 @@
+---
+title: "Downloading the global OBIS dataset & linking with GEBCO depths"
+format: 
+    html:
+      css: cayman.css
+
+editor: source
+---
+
+# Setting up the working environment
+
+## Required packages
+
+```{r}
+#| output: false
+#| warning: false
+#| echo: false
+
+library(raster)
+library(robis)
+library(tidyverse)
+library(rnaturalearth)
+library(rnaturalearthhires)
+library(cowplot)
+library(rgeos)
+library(sf)
+library(plyr)
+
+```
+
+## Folder structures
+
+Various folders where the data is stored (if working on work Windows laptop):
+
+```{r}
+wd<-"/Volumes/NOC_Drive/OneDrive/OneDrive - University of Plymouth/Projects/OBIS_data_clean/Code/"
+
+# wd<-"D:/OneDrive/OneDrive - University of Plymouth/Projects/OBIS_data_clean/Code/"
+
+raw_downloads_folder<-paste0(wd, "step1_raw_downloads/")
+
+no_gebco_vals_folder<-paste0(wd, "step2_no_gebco_val_records/")
+
+gebco_vals_folder<-paste0(wd, "step3_gebco_val_records/")
+
+gebco_folder<-"D:/OneDrive/OneDrive - University of Plymouth/GIS Files/World_Layers/GEBCO/GEBCO_2020/"
+
+```
+
+# Downloading the OBIS data
+
+## Setting geometries
+
+As the total OBIS database is around 144GB, we divided the world into 8 equal tiles in a 2x4 structure (see below). ![World divisions for OBIS download](Section_divisions.jpg)
+
+To download OBIS data for a specific geographic area using the robis package, you need to have the well-known text (WKT) strings for each tile. These were calculated using a free, online tool that converts a .shp file to a WKT string.
+
+```{r}
+# geom1<-"POLYGON((-180.000000 90.000000, -90.000000 90.000000, -90.000000 0.000000, -180.000000 0.000000, -180.000000 90.000000))"
+# geom2a<-"POLYGON((-90.000000 90.000000, -45.000000 90.000000, -45.000000 0.000000, -90.000000 0.000000, -90.000000 90.000000))"
+# geom2b<-"POLYGON((-45.000000 90.000000, 0.000000 90.000000, 0.000000 0.000000, -45.000000 0.000000, -45.000000 90.000000))"
+# geom3<-"POLYGON((0.000000 90.000000, 90.000000 90.000000, 90.000000 0.000000, 0.000000 0.000000, 0.000000 90.000000))"
+# geom4<-"POLYGON((90.000000 90.000000, 180.000000 90.000000, 180.000000 0.000000, 90.000000 0.000000, 90.000000 90.000000))"
+# geom5<-"POLYGON((-180.000000 0.000000, -90.000000 0.000000, -90.000000 -90.000000, -180.000000 -90.000000, -180.000000 0.000000))"
+# geom6<-"POLYGON((-90.000000 0.000000, 0.000000 0.000000, 0.000000 -90.000000, -90.000000 -90.000000, -90.000000 0.000000))"
+# geom7<-"POLYGON((0.000000 0.000000, 90.000000 0.000000, 90.000000 -90.000000, 0.000000 -90.000000, 0.000000 0.000000))"
+# geom8<-"POLYGON((90.000000 0.000000, 180.000000 0.000000, 180.000000 -90.000000, 90.000000 -90.000000, 90.000000 0.000000))"
+
+```
+
+## Occurrence() download
+
+Using the occurrence() function, we're downloading records of 'Animalia' and anything that falls within that category (taxonid=2) from below 30 m depth (startdepth=30).
+
+```{r}
+section8_raw<-occurrence(taxonid = 2, startdepth = 30, geometry = geom8)
+```
+
+For paper purposes, we probably need to keep a copy of the download so we write our the raw download for each tile.
+
+```{r}
+write.csv(section8_raw, paste0(raw_downloads_folder,"OBISdownload_TaxonID2_section8_300623.csv"), row.names = FALSE) 
+
+```
+
+To better understand the data, we'll just tabulate by order and save this too. We chose order as when it comes to comparing the two download methods (full **versus** 'benthic' groups), it's easier to compare as the benthic groups are roughly at order level or above.
+
+```{r}
+order_tab<-section8_raw%>%
+  group_by(order)%>%
+  summarise(count(order))
+
+write.csv(order_tab, paste0(raw_downloads_folder, "Summary_by_order_TaxonID2_section8_300623.csv"), row.names = F) # change to mac version if applicable
+
+```
+
+## Selecting the depth field
+
+Now we need to select which OBIS columns to use as OBIS has duplicates. The latitude and longitude we'll use are 'decimalLatitude' and 'decimalLongitude'. For depth, there are three possible columns one could use: 'depth', 'maximumDepthInMeters' and 'minimumDepthInMeters'. We plotted histograms to looks at the differences between each type of depth field.
+
+```{r}
+# I'm not using ggplot becasue it takes an age
+hist(section8_raw$depth)
+hist(section8_raw$maximumDepthInMeters)
+hist(section8_raw$minimumDepthInMeters)
+
+```
+
+As you can see, the histograms are very similar. To be extra cautious, we can count the number of NAs/equivalent in each field.
+
+```{r}
+a<-sum(is.na(section8_raw$depth))
+b<-sum(is.na(section8_raw$minimumDepthInMeters))
+c<-sum(is.na(section8_raw$maximumDepthInMeters))
+no_of_NAs<-c(a,b,c)
+names<-c("depth", "minDIM", "maxDIM")
+data.frame(names, no_of_NAs)
+```
+
+Given we specified a 'startdepth' on the occurrence() download, this suggests 'depth' is the variable used by OBIS and therefore the one we'll be using going forward.
+
+# Importing the GEBCO data
+
+To infer whether a record if pelagic or benthic, we use proximity to GEBCO depth value.
+
+```{r}
+gebco_tile<-raster(paste0(gebco_folder,"GEBCO2020_depth_430m_WGS84.tif")) # change to mac version if applicable
+```
+
+The GEBCO original download actually includes land values but I've previously removed them. If you're working with the original GEBCO file, you can remove areas above sea level using the code below.
+
+```{r}
+# gebco_tile<-clamp(gebco_tile, lower=-Inf, upper=0, useValues=FALSE)
+# plot(gebco_tile)
+```
+
+The OBIS depth data is positive, whereas the GEBCO data for below sea level is negative so we need to convert the OBIS depth to a negative value.
+
+```{r}
+section8_raw[,"depth"] <- -section8_raw[,"depth"] 
+```
+
+## Extracting GEBCO depths
+
+Now we want to extract the GEBCO depth value for each xy location that we have an OBIS record for. To do this we made a coordinates df, and then extracted the raster values for said coordinates.
+
+```{r}
+xy<-section8_raw[,c("decimalLongitude", "decimalLatitude")] # makes coord df
+gebco_depth_value<-raster::extract(gebco_tile, xy) # extracts raster values
+
+combined_df<-cbind(gebco_depth_value, section8_raw) # adds raster values to original df
+
+```
+
+There are bound to be OBIS records in locations for which there is no GEBCO depth values (e.g. erroneous land records or records for which the xy data is a museum).
+
+```{r}
+sum(is.na(combined_df$gebco_depth_value))
+```
+
+As we wanted to keep track of any steps resulting data loss during the cleaning process, we kept a dataframe of these records with no GEBCO depth, and saved the values with a GEBCO depth for further analysis.
+
+```{r}
+no_gebco <- combined_df[is.na(combined_df$gebco_depth_value),]
+write.csv(no_gebco, paste0(no_gebco_vals_folder, "No_GEBCO_vals_TaxonID2_section8_300623.csv"), row.names = F) # change to mac version if applicable
+
+gebco_vals <- combined_df[!is.na(combined_df$gebco_depth_value),] #remaining locations where we do have a GEBCO value
+write.csv(gebco_vals, paste0(gebco_vals_folder, "GEBCO_vals_TaxonID2_section8_300623.csv"), row.names = F) # change to mac version if applicable
+```
+
+We used proximity to the seabed as an indicator of benthic **versus** pelagic, and therefore we calculated the difference between the GEBCO depth value and the record depth value for each record.
+
+```{r}
+depth_comparisons<-gebco_vals%>%
+  mutate(depth_difference=abs(gebco_depth_value-depth)) # use abs to calculate absolute difference (square root of the square) because this caters for any differences in +/- values
+```
+
+There are now 5 columns associated with depth.
+
+```{r}
+
+columns<-as.data.frame(colnames(gebco_vals))
+names(columns)[1] <- "cols"
+columns<-columns%>%
+  filter(str_detect(cols, 'depth|Depth'))
+columns
+```
+
+```{r}
+depth_fields<-gebco_vals%>%
+  select(gebco_depth_value, maximumDepthInMeters, minimumDepthInMeters, depth, verbatimDepth)
+head(depth_fields)
+```
+
+We don't care for verbatim, maxD or minD, although I don't want to get rid of them. The key information is that 'gebco_depth_value' comes from the xy extraction, and 'depth' comes from the OBIS database.

@@ -1,0 +1,292 @@
+---
+title: "Compiliing the final dataset"
+format: 
+    html:
+      css: cayman.css
+
+editor: source
+---
+
+# Setting up the working environment
+
+## Required packages
+
+```{r}
+#| warning: false
+#| message: false
+
+library(raster)
+library(tidyverse)
+library(rnaturalearth)
+library(cowplot)
+library(sf)
+library(plyr)
+library(Utilities.Package)
+library(classInt)
+library(fpc)
+library(BBmisc)
+library(performance)
+library(mgcv)
+```
+
+## Folder structures
+
+Various folders where the data is stored (if working on work Windows laptop):
+
+```{r}
+# wd<-"/Volumes/One Touch/Main_folder/In_prep_submittted_manuscripts/Bridges_etal_OBIS_assessment/OBIS_data_clean/Code/"
+
+wd<-"/Volumes/One Touch/Main_folder/In_prep_submittted_manuscripts/Bridges_etal_OBIS_assessment/OBIS_data_clean/Code/"
+
+final_benthic_datasets_folder<-paste0(wd, "step9_final_datasets/Benthic/")
+
+final_pelagic_datasets_folder<-paste0(wd, "step9_final_datasets/Pelagic/")
+
+# gebco_folder<-"/Volumes/One Touch/Main_folder/GIS Files/World_Layers/GEBCO/GEBCO_2020/"
+
+gebco_folder<-"/Volumes/One Touch/Main_folder/GIS Files/World_Layers/GEBCO/GEBCO_2020/"
+
+```
+
+## Generate list of desired columns
+
+```{r}
+# cols_keep<-c("decimalLatitude", "decimalLongitude", "gebco_depth_value","depth","obis_record_depth","predicted_b_min","marine","brackish", "dataset_id","kingdom","phylum","subphylum", "class","subclass","order","suborder", "family","genus","species", "scientificName", "aphiaID", "BP")
+```
+
+## Read in data
+
+```{r}
+# section1<-read.csv(paste0(final_benthic_datasets_folder, "Individual_sections/GEBCO_vals_TaxonID2_section1_270623_pelagic.csv"), head=T, sep=",")%>%
+#   dplyr::select(all_of(cols_keep))
+# section2a<-read.csv(paste0(final_benthic_datasets_folder, "Individual_sections/GEBCO_vals_TaxonID2_section2a_270623_pelagic.csv"), head=T, sep=",")%>%
+#   dplyr::select(all_of(cols_keep))
+# section2b<-read.csv(paste0(final_benthic_datasets_folder, "Individual_sections/GEBCO_vals_TaxonID2_section2b_280623_pelagic.csv"), head=T, sep=",")%>%
+#   dplyr::select(all_of(cols_keep))
+# section3<-read.csv(paste0(final_benthic_datasets_folder, "Individual_sections/GEBCO_vals_TaxonID2_section3_280623_pelagic.csv"), head=T, sep=",")%>%
+#   dplyr::select(all_of(cols_keep))
+# section4<-read.csv(paste0(final_benthic_datasets_folder, "Individual_sections/GEBCO_vals_TaxonID2_section4_300623_pelagic.csv"), head=T, sep=",")%>%
+#   dplyr::select(all_of(cols_keep))
+# section5<-read.csv(paste0(final_benthic_datasets_folder, "Individual_sections/GEBCO_vals_TaxonID2_section5_300623_pelagic.csv"), head=T, sep=",")%>%
+#   dplyr::select(all_of(cols_keep))
+# section6<-read.csv(paste0(final_benthic_datasets_folder, "Individual_sections/GEBCO_vals_TaxonID2_section6_300623_pelagic.csv"), head=T, sep=",")%>%
+#   dplyr::select(all_of(cols_keep))
+# section7<-read.csv(paste0(final_benthic_datasets_folder, "Individual_sections/GEBCO_vals_TaxonID2_section7_300623_pelagic.csv"), head=T, sep=",")%>%
+#   dplyr::select(all_of(cols_keep))
+# section8<-read.csv(paste0(final_benthic_datasets_folder, "Individual_sections/GEBCO_vals_TaxonID2_section8_300623_pelagic.csv"), head=T, sep=",")%>%
+#   dplyr::select(all_of(cols_keep))
+```
+
+## Combine & remove non-marine taxa
+
+```{r}
+# full_df<-bind_rows(section1, section2a, section2b, section3, section4, section5, section6, section7, section8)
+# 
+# marinefalse<-full_df %>%
+#   filter(marine=="FALSE")
+```
+
+**Benthic**
+Some of these supposedly false records are probably correct and should be marine=TRUE. I'm going to eyeball the dataset at the class level instead. 
+
+**Pelagic**
+
+
+```{r}
+# class_list<-as.data.frame(unique(full_df$class))
+```
+
+**Benthic**
+Of the 84 results, NA is one, two are non-marine groups (Diplopoda and Aves) - I have removed these.
+
+**Pelagic**
+Of the 84 results, NA is one, one is non-marine group (Aves) and one doesn't come up on WoRMS (Inarticulata) - I have removed these.
+
+```{r}
+# full_df<-full_df %>%
+#   filter((class!="Aves") %>%
+#   replace_na(TRUE))
+# 
+# full_df<-full_df %>%
+#   filter((class!="Inarticulata") %>%
+#   replace_na(TRUE))
+
+```
+
+Write out our final df. 
+
+```{r}
+# write.csv(full_df, paste0(final_datasets_folder, "AllBenthicRecords_TaxonID2_Global_FINAL.csv"), row.names = F)
+# write.csv(full_df, paste0(final_datasets_folder, "AllPelagicRecords_TaxonID2_Global_FINAL.csv"), row.names = F)
+
+full_df<-read.csv(paste0(final_benthic_datasets_folder, "AllBenthicRecords_TaxonID2_Global_FINAL.csv"), head=T, sep=",")
+full_df_p<-read.csv(paste0(final_pelagic_datasets_folder, "AllPelagicRecords_TaxonID2_Global_FINAL.csv"), head=T, sep=",")
+
+# full_df_new<-rbind(full_df_b, full_df)
+```
+
+## Map
+
+```{r}
+# world_coordinates <- map_data("world") 
+# 
+# map<-ggplot() + 
+#   geom_map(data = world_coordinates, map = world_coordinates, aes(long, lat, map_id = region))+
+#   geom_point(data=full_df, 
+#              aes(x=decimalLongitude, y=decimalLatitude), colour="darkturquoise", 
+#              fill="darkgrey",pch=21, size=0.5, alpha=I(0.7))
+
+# full_df<-full_df%>%
+#   mutate(hemisphere=case_when(decimalLatitude < 0 ~ "S",
+#                               decimalLatitude > 0 ~ "N"))
+# 
+# check<-full_df %>%
+#   group_by(hemisphere) %>%
+#   summarise(sum=count(hemisphere))
+
+```
+
+## Get important summary info
+
+### Group by phylum
+
+```{r}
+# phylum_records<-full_df %>%
+#   drop_na(phylum)
+# 
+# phylum_records_p<-full_df_p %>%
+#   drop_na(phylum)
+
+```
+
+
+### Split vertebrates and invertebrates
+
+Firstly, remove the 32,215 records with no phylum.
+
+```{r}
+# check<-phylum_records %>%
+#   group_by(phylum) %>%
+#   summarise(sum=count(phylum))
+# 
+# check_p<-phylum_records_p %>%
+#   group_by(phylum) %>%
+#   summarise(sum=count(phylum))
+#
+# write.csv(check_p, paste0(final_pelagic_datasets_folder, "pelagic_phylum_summary.csv"), row.names = F)
+```
+
+```{r}
+
+# inverts<-phylum_records %>%
+#   filter((subphylum!="Vertebrata") %>%
+#            replace_na(TRUE))%>%
+#   filter((subphylum!="Cephalochordata") %>%
+#            replace_na(TRUE))
+# 
+# verts<-phylum_records %>%
+#   filter(subphylum=="Vertebrata" |
+#          subphylum=="Cephalochordata")
+  
+```
+
+We do need to consider records where subphylum is NA but the phylum is Chordata. For these records, we don't know if they're inverts or verts. 
+
+```{r}
+
+# non_chordate_inverts<-inverts %>% 
+#   filter(phylum!="Chordata")
+# 
+# chordata_inverts<-inverts %>%
+#   filter(phylum=="Chordata")
+# 
+# check<-chordata_inverts %>% 
+#   group_by(subphylum) %>% 
+#   summarise(sum=count(subphylum))
+
+```
+
+There are 2,000 records like this. Let's remove them. 
+
+```{r}
+# keep<-chordata_inverts %>% 
+#   drop_na(subphylum)
+# 
+# final_inverts<-rbind(non_chordate_inverst, keep)
+# 
+# write.csv(final_inverts, paste0(final_datasets_folder, "AllBenthicRecords_Invertebrates_Global_FINAL.csv"), row.names = F)
+
+```
+
+Make a shapefile. 
+
+```{r}
+# final_inverts<-read.csv(paste0(final_datasets_folder, "AllBenthicRecords_Invertebrates_Global_FINAL.csv"), sep=",", head=T)
+# 
+# final_inverts_shp<-st_as_sf(final_inverts, coords = c("decimalLongitude", "decimalLatitude"), crs = 4326)%>%
+#   dplyr::rename(b_min=predicted_b_min,
+#          gebco_dep=gebco_depth_value,
+#          obis_dep=obis_record_depth,
+#          sciName=scientificName)
+# 
+# 
+# output_shapefile<-paste0(final_datasets_folder, "AllBenthicRecords_Invertebrates_Global_FINAL.shp")
+# 
+# st_write(final_inverts_shp, output_shapefile)
+
+```
+
+### No. invertebrate records to at least genus
+
+```{r}
+# genus_records<-final_inverts %>% 
+#   group_by(genus) %>% 
+#   summarise(sum=count(genus))
+```
+
+4,022,075 invertebrate genus records.
+
+## Filter regionally if needed
+
+```{r}
+north_atlantic<-full_df %>% 
+  filter(decimalLatitude >= 5 &
+           decimalLatitude <= 69 &
+           decimalLongitude <= 15 &
+           decimalLongitude >= -100)
+
+write.csv(north_atlantic, "D:/OneDrive/OneDrive - University of Plymouth/In_prep_submittted_manuscripts/Allcock_etal_C150NAReview/GapAnalysisData/CheckedVersions/RoughNA_Pelagic_OBIS.csv", row.names = F)
+```
+
+## Convert df to shp
+
+```{r}
+full_shp<-st_as_sf(full_df, coords = c("decimalLongitude", "decimalLatitude"), crs = 4326)%>%
+  dplyr::rename(b_min=predicted_b_min,
+         gebco_dep=gebco_depth_value,
+         obis_dep=obis_record_depth,
+         sciName=scientificName)
+
+
+output_shapefile<-paste0(final_datasets_folder, "AllBenthicRecords_TaxonID2_Global_FINAL.shp")
+
+st_write(full_shp, output_shapefile)
+
+```
+
+## Convert data to raster grid
+
+```{r}
+# gebco_tile<-raster(paste0(gebco_folder,"GEBCO2020_depth_430m_WGS84.tif")) 
+# gebco_tile<-raster(paste0(gebco_folder,"GEBCO2020_depth_1km_WGS84.tif"))
+# gebco_tile<-raster(paste0(gebco_folder,"GEBCO2020_depth_10km_WGS84.tif"))
+gebco_tile<-raster(paste0(gebco_folder,"GEBCO_1deg_Template_WGS84.tif"))
+
+coordinates(full_df) <- c("decimalLongitude", "decimalLatitude")
+
+point_count_raster <- rasterize(full_df, gebco_tile, field = 1, fun = "count")
+
+writeRaster(point_count_raster, paste0(final_benthic_datasets_folder,"AllBenthicRecords_TaxonID2_Global_1deg_FINAL.tif"), format = "GTiff")
+
+```
+
